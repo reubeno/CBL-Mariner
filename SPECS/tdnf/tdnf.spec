@@ -1,13 +1,13 @@
 Summary:        dnf/yum equivalent using C libs
 Name:           tdnf
-Version:        3.2.2
-Release:        4%{?dist}
+Version:        3.3.2
+Release:        1%{?dist}
 License:        LGPLv2.1 AND GPLv2
 Vendor:         Microsoft Corporation
 Distribution:   Mariner
 Group:          Applications/RPM
 URL:            https://github.com/vmware/tdnf/wiki
-#Source0:       https://github.com/vmware/tdnf/archive/v%{version}.tar.gz
+#Source0:       https://github.com/vmware/tdnf/archive/refs/tags/v%{version}.tar.gz
 Source0:        %{name}-%{version}.tar.gz
 Source1:        cache-updateinfo
 Source2:        cache-updateinfo.service
@@ -178,6 +178,9 @@ find %{buildroot} -name '*.pyc' -delete
 %{_bindir}/tdnf-automatic
 
 %changelog
+* Tue Oct 18 2022 Mandeep Plaha <mandeepplaha@microsoft.com> - 3.3.2-1
+- Update to version 3.3.2.
+
 * Tue May 03 2022 Pawel Winogrodzki <pawelwi@microsoft.com> - 3.2.2-4
 - Reverting usage of "rpm" in RPM scripts since "/var/lib/rpm/.rpm.lock" is always taken.
 

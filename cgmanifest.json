@@ -25987,8 +25987,8 @@
         "type": "other",
         "other": {
           "name": "tdnf",
-          "version": "3.2.2",
-          "downloadUrl": "https://github.com/vmware/tdnf/archive/v3.2.2.tar.gz"
+          "version": "3.3.2",
+          "downloadUrl": "https://github.com/vmware/tdnf/archive/refs/tags/v3.3.2.tar.gz"
         }
       }
     },
