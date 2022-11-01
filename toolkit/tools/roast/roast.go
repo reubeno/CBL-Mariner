@@ -292,6 +292,8 @@ func converterFactory(formatType string) (converter formats.Converter, err error
 	case formats.VhdxType:
 		const gen2 = true
 		converter = formats.NewVhd(gen2)
+	case formats.Qcow2Type:
+		converter = formats.NewQcow2()
 	case formats.InitrdType:
 		converter = formats.NewInitrd()
 	case formats.OvaType:

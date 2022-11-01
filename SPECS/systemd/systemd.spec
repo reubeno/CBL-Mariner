@@ -1,7 +1,7 @@
-Summary:        Systemd-250
+Summary:        Systemd-252
 Name:           systemd
-Version:        250.3
-Release:        9%{?dist}
+Version:        252.0
+Release:        1%{?dist}
 License:        LGPLv2+ AND GPLv2+ AND MIT
 Vendor:         Microsoft Corporation
 Distribution:   Mariner
@@ -11,27 +11,23 @@ Source0:        https://github.com/%{name}/%{name}-stable/archive/v%{version}.ta
 Source1:        50-security-hardening.conf
 Source2:        systemd.cfg
 Source3:        99-dhcp-en.network
-Patch0:         fix-journald-audit-logging.patch
-# Patch1 can be removed once we update systemd to a version containing the following commit:
-# https://github.com/systemd/systemd/commit/19193b489841a7bcccda7122ac0849cf6efe59fd
-Patch1:         add-fsync-sysusers-passwd.patch
-# Patch2 can be removed once we update systemd to a version containing the following commit:
-# https://github.com/systemd/systemd/commit/d5cb053cd93d516f516e0b748271b55f9dfb3a29
-Patch2:         gpt-auto-devno-not-determined.patch
 BuildRequires:  cryptsetup-devel
 BuildRequires:  docbook-dtd-xml
 BuildRequires:  docbook-style-xsl
 BuildRequires:  gettext
 BuildRequires:  glib-devel
+BuildRequires:  gnu-efi-devel
 BuildRequires:  gperf
 BuildRequires:  intltool
 BuildRequires:  kbd
 BuildRequires:  kmod-devel
 BuildRequires:  libcap-devel
+BuildRequires:  libcurl-devel
 BuildRequires:  libgcrypt-devel
 BuildRequires:  libselinux-devel
 BuildRequires:  libxslt
 BuildRequires:  lz4-devel
+BuildRequires:  mariner-release
 BuildRequires:  meson
 BuildRequires:  pam-devel
 BuildRequires:  perl-XML-Parser
@@ -88,7 +84,7 @@ Requires:       %{name} = %{version}-%{release}
 Language pack for systemd
 
 %prep
-%autosetup -p1 -n systemd-stable-%{version}
+%autosetup -p1 -n systemd-252-rc2
 cat > config.cache << "EOF"
 KILL=/bin/kill
 HAVE_BLKID=1
@@ -118,7 +114,7 @@ meson  --prefix %{_prefix}                                            \
        -Dsysusers=true                                                \
        -Dpam=true                                                     \
        -Dhomed=false                                                  \
-       -Dlibcurl=false                                                \
+       -Dlibcurl=true                                                 \
        -Dpolkit=true                                                  \
        -Dlibcryptsetup=true                                           \
        -Dgcrypt=true                                                  \
@@ -130,6 +126,13 @@ meson  --prefix %{_prefix}                                            \
        -Dsysvinit-path=%{_sysconfdir}/rc.d/init.d                     \
        -Drc-local=%{_sysconfdir}/rc.d/rc.local                        \
        -Dselinux=true                                                 \
+       -Dsysext=true                                                  \
+       -Dsysupdate=true                                               \
+       -Dimportd=true                                                 \
+       -Defi=true                                                     \
+       -Dgnu-efi=true                                                 \
+       -Drepart=true                                                  \
+       -Dportabled=true                                               \
        $PWD build &&
        cd build &&
        %ninja_build
@@ -146,6 +149,7 @@ sed -i '/srv/d' %{buildroot}%{_libdir}/tmpfiles.d/home.conf
 sed -i "s:0775 root lock:0755 root root:g" %{buildroot}%{_libdir}/tmpfiles.d/legacy.conf
 sed -i "s:NamePolicy=kernel database onboard slot path:NamePolicy=kernel database:g" %{buildroot}%{_libdir}/systemd/network/99-default.link
 sed -i "s:#LLMNR=yes:LLMNR=false:g" %{buildroot}%{_sysconfdir}/systemd/resolved.conf
+ln -sfv ../run/systemd/resolve/stub-resolv.conf %{buildroot}%{_sysconfdir}/resolv.conf
 sed -i "s:#NTP=:NTP=time.windows.com:g" %{buildroot}%{_sysconfdir}/systemd/timesyncd.conf
 rm -f %{buildroot}%{_var}/log/README
 rm -f %{buildroot}/%{_libdir}/modprobe.d/README
@@ -184,12 +188,14 @@ systemctl preset-all
 %dir %{_sysconfdir}/sysctl.d
 %dir %{_sysconfdir}/modules-load.d
 %dir %{_sysconfdir}/binfmt.d
+%{_sysconfdir}/resolv.conf
 %{_sysconfdir}/X11/xinit/xinitrc.d/50-systemd-user.sh
 %{_sysconfdir}/sysctl.d/50-security-hardening.conf
 %{_sysconfdir}/xdg/systemd
 %{_sysconfdir}/rc.d/init.d/README
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.systemd1.conf
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.hostname1.conf
+%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.import1.conf
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.login1.conf
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.locale1.conf
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.timedate1.conf
@@ -202,6 +208,7 @@ systemctl preset-all
 %config(noreplace) %{_sysconfdir}/systemd/system.conf
 %config(noreplace) %{_sysconfdir}/systemd/user.conf
 %config(noreplace) %{_sysconfdir}/systemd/logind.conf
+%config(noreplace) %{_sysconfdir}/systemd/journal-upload.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf
 %config(noreplace) %{_sysconfdir}/systemd/resolved.conf
 %config(noreplace) %{_sysconfdir}/systemd/coredump.conf
@@ -230,6 +237,7 @@ systemctl preset-all
 %{_libdir}/sysctl.d
 %{_libdir}/tmpfiles.d
 /lib/*.so*
+/lib/systemd/*.so*
 %{_libdir}/modprobe.d/systemd.conf
 %{_libdir}/sysusers.d/*
 %{_bindir}/*
@@ -261,6 +269,9 @@ systemctl preset-all
 %files lang -f %{name}.lang
 
 %changelog
+* Fri Oct 21 2022 Reuben Olinsky <reubeno@microsoft.com> - 252-rc2
+- Upgrading to 252-rc2
+
 * Tue Oct 04 2022 Pawel Winogrodzki <pawelwi@microsoft.com> - 250.3-9
 - Fixing default log location.
 
