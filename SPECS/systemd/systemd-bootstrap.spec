@@ -1,7 +1,7 @@
 Summary:        Bootstrap version of systemd. Workaround for systemd circular dependency.
 Name:           systemd-bootstrap
-Version:        250.3
-Release:        7%{?dist}
+Version:        252
+Release:        1%{?dist}
 License:        LGPLv2+ AND GPLv2+ AND MIT
 Vendor:         Microsoft Corporation
 Distribution:   Mariner
@@ -11,13 +11,7 @@ Source0:        https://github.com/systemd/systemd-stable/archive/v%{version}.ta
 Source1:        50-security-hardening.conf
 Source2:        systemd.cfg
 Source3:        99-dhcp-en.network
-Patch0:         fix-journald-audit-logging.patch
-# Patch1 can be removed once we update systemd to a version containing the following commit:
-# https://github.com/systemd/systemd/commit/19193b489841a7bcccda7122ac0849cf6efe59fd
-Patch1:         add-fsync-sysusers-passwd.patch
-# Patch2 can be removed once we update systemd to a version containing the following commit:
-# https://github.com/systemd/systemd/commit/d5cb053cd93d516f516e0b748271b55f9dfb3a29
-Patch2:         gpt-auto-devno-not-determined.patch
+Patch0:         0001-sysupdate-try-harder-to-find-root.patch
 BuildRequires:  docbook-dtd-xml
 BuildRequires:  docbook-style-xsl
 BuildRequires:  gettext
@@ -67,7 +61,7 @@ AutoReq:        no
 Development headers for developing applications linking to libsystemd
 
 %prep
-%autosetup -p1 -n systemd-stable-%{version}
+%autosetup -p1 -n systemd-252
 cat > config.cache << "EOF"
 KILL=/bin/kill
 HAVE_BLKID=1
@@ -202,6 +196,7 @@ systemctl preset-all
 %{_libdir}/sysctl.d
 %{_libdir}/tmpfiles.d
 /lib/*.so*
+/lib/systemd/*.so*
 %{_libdir}/modprobe.d/systemd.conf
 %{_libdir}/sysusers.d/*
 %{_bindir}/*
@@ -231,6 +226,9 @@ systemctl preset-all
 %{_datadir}/pkgconfig/udev.pc
 
 %changelog
+* Fri Oct 21 2022 Reuben Olinsky <reubeno@microsoft.com> - 252
+- Upgrading to 252.
+
 * Tue Oct 04 2022 Pawel Winogrodzki <pawelwi@microsoft.com> - 250.3-7
 - Fixing default log location.
 

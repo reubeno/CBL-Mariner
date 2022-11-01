@@ -1,0 +1,38 @@
+From 9375eeb3d6faf9c5f97e8bc0fba559778d5cd0bd Mon Sep 17 00:00:00 2001
+From: reuben olinsky <reubeno@users.noreply.github.com>
+Date: Mon, 31 Oct 2022 22:58:52 -0700
+Subject: [PATCH] Make sysupdate try harder to find the root
+
+---
+ src/sysupdate/sysupdate-resource.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/sysupdate/sysupdate-resource.c b/src/sysupdate/sysupdate-resource.c
+index 8104e9c82e97..077620ebafaf 100644
+--- a/src/sysupdate/sysupdate-resource.c
++++ b/src/sysupdate/sysupdate-resource.c
+@@ -8,6 +8,7 @@
+ #include "blockdev-util.h"
+ #include "chase-symlinks.h"
+ #include "device-util.h"
++#include "devnum-util.h"
+ #include "dirent-util.h"
+ #include "env-util.h"
+ #include "fd-util.h"
+@@ -547,6 +548,16 @@ int resource_resolve_path(
+                                                "Block device is not allowed when using --root= mode.");
+ 
+                 r = get_block_device_harder("/usr/", &d);
++                if (r == 0)
++                        r = get_block_device_harder("/", &d);
++
++                if (r == 0) {
++                        _cleanup_free_ char *real_root = NULL;
++                        mode_t m;
++
++                        if (readlink_malloc("/run/systemd/volatile-root", &real_root) >= 0)
++                                r = device_path_parse_major_minor(real_root, &m, &d);
++                }
+ 
+         } else if (rr->type == RESOURCE_PARTITION) {
+                 _cleanup_close_ int fd = -1, real_fd = -1;
