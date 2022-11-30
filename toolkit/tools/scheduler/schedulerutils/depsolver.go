@@ -6,8 +6,8 @@ package schedulerutils
 import (
 	"sync"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/pkggraph"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/pkggraph"
 	"gonum.org/v1/gonum/graph"
 	"gonum.org/v1/gonum/graph/traverse"
 )

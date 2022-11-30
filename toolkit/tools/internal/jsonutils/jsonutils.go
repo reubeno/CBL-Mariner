@@ -10,7 +10,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
 )
 
 const (

@@ -15,7 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger/hooks/writerhook"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger/hooks/writerhook"
 )
 
 var (

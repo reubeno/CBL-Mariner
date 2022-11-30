@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/pkggraph"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/pkgjson"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/rpm"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/pkggraph"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/pkgjson"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/rpm"
 )
 
 // InjectMissingImplicitProvides will inject implicit provide nodes into the graph from a build result if they satisfy any unresolved nodes.
