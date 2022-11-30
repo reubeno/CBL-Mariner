@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/configuration"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/retry"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/shell"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/imagegen/configuration"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/file"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/retry"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/shell"
 )
 
 type blockDevicesOutput struct {

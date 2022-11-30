@@ -1,4 +1,4 @@
-module github.com/microsoft/CBL-Mariner/toolkit/tools
+module github.com/reubeno/CBL-Mariner/toolkit/tools
 
 go 1.17
 

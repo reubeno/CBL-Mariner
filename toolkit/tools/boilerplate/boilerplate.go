@@ -8,9 +8,9 @@ package main
 import (
 	"os"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/boilerplate/hello"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/exe"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/boilerplate/hello"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/exe"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 )
