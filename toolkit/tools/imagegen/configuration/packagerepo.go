@@ -13,11 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/network"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/safechroot"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/shell"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/file"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/network"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/safechroot"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/shell"
 )
 
 // PackageRepo defines the RPM repo to pull packages from during the installation

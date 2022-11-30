@@ -16,7 +16,7 @@ import (
 	"github.com/cavaliergopher/cpio"
 	"github.com/cavaliergopher/rpm"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
 )
 
 type repomdData struct {

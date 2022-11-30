@@ -16,11 +16,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/pkgjson"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/sliceutils"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/versioncompare"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/file"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/pkgjson"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/sliceutils"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/versioncompare"
 
 	"gonum.org/v1/gonum/graph"
 	"gonum.org/v1/gonum/graph/encoding"

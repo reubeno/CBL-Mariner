@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/jsonutils"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/packagerepo/repocloner"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/pkgjson"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/file"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/jsonutils"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/packagerepo/repocloner"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/pkgjson"
 )
 
 // RestoreClonedRepoContents restores a cloner's repo contents using a JSON file at `srcFile`.

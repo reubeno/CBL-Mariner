@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
 	"github.com/stretchr/testify/assert"
 )
 

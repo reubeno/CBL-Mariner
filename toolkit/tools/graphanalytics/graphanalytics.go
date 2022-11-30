@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/exe"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/pkggraph"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/sliceutils"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/exe"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/pkggraph"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/sliceutils"
 
 	"gonum.org/v1/gonum/graph"
 	graphpath "gonum.org/v1/gonum/graph/path"

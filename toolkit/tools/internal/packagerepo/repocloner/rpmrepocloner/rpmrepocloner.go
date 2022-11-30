@@ -11,14 +11,14 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/buildpipeline"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/packagerepo/repocloner"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/packagerepo/repomanager/rpmrepomanager"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/pkgjson"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/safechroot"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/shell"
-	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/tdnf"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/buildpipeline"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/logger"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/packagerepo/repocloner"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/packagerepo/repomanager/rpmrepomanager"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/pkgjson"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/safechroot"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/shell"
+	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/tdnf"
 )
 
 const (
