@@ -8,8 +8,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/gogetrpm"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/configuration"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/diskutils"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/installutils"
@@ -17,6 +19,7 @@ import (
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/safechroot"
+	"golang.org/x/sys/unix"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 )
@@ -71,6 +74,16 @@ func main() {
 		installutils.EnableEmittingProgress()
 	}
 
+	// Set up output dirs
+	if *buildDir == "" {
+		*buildDir = "build"
+	}
+	if *outputDir == "" {
+		*outputDir = "output"
+	}
+	os.MkdirAll(*buildDir, 0755)
+	os.MkdirAll(*outputDir, 0755)
+
 	// Parse Config
 	config, err := configuration.LoadWithAbsolutePaths(*configFile, *baseDirPath)
 	logger.PanicOnError(err, "Failed to load configuration file (%s) with base directory (%s)", *configFile, *baseDirPath)
@@ -104,16 +117,18 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 	logger.Log.Infof("Building system configuration (%s)", systemConfig.Name)
 
 	const (
-		assetsMountPoint    = "/installer"
-		localRepoMountPoint = "/mnt/cdrom/RPMS"
-		repoFileMountPoint  = "/etc/yum.repos.d"
-		setupRoot           = "/setuproot"
-		installRoot         = "/installroot"
-		rootID              = "rootfs"
-		defaultDiskIndex    = 0
-		defaultTempDiskName = "disk.raw"
-		existingChrootDir   = false
-		leaveChrootOnDisk   = false
+		assetsMountPoint     = "/installer"
+		localRepoMountPoint  = "/mnt/cdrom/RPMS"
+		repoFileMountPoint   = "/etc/yum.repos.d"
+		setupRoot            = "/setuproot"
+		installRoot          = "/installroot"
+		hostResolvConfPath   = "/etc/resolv.conf"
+		resolvConfMountPoint = "/etc/resolv.conf"
+		rootID               = "rootfs"
+		defaultDiskIndex     = 0
+		defaultTempDiskName  = "disk.raw"
+		existingChrootDir    = false
+		leaveChrootOnDisk    = false
 	)
 
 	var (
@@ -209,13 +224,79 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 	}
 
 	if isOfflineInstall {
-		// Create setup chroot
-		additionalExtraMountPoints := []*safechroot.MountPoint{
-			safechroot.NewMountPoint(*assets, assetsMountPoint, "", safechroot.BindMountPointFlags, ""),
-			safechroot.NewMountPoint(*localRepo, localRepoMountPoint, "", safechroot.BindMountPointFlags, ""),
-			safechroot.NewMountPoint(filepath.Dir(*repoFile), repoFileMountPoint, "", safechroot.BindMountPointFlags, ""),
+		// If provided, bind-mount the assets dir...
+		if *assets != "" {
+			extraMountPoints = append(extraMountPoints,
+				safechroot.NewMountPoint(*assets, assetsMountPoint, "", safechroot.BindMountPointFlags, ""))
 		}
-		extraMountPoints = append(extraMountPoints, additionalExtraMountPoints...)
+
+		// ...and the local RPM repo...
+		if *localRepo != "" {
+			extraMountPoints = append(extraMountPoints,
+				safechroot.NewMountPoint(*localRepo, localRepoMountPoint, "", safechroot.BindMountPointFlags, ""))
+		} else {
+			// If a local RPM repo isn't provided, then we assume that the worker
+			// will need to go online to download RPMs; make sure it will be able
+			// to use DNS by bind-mounting resolv.conf (read only, of course)
+			localPath, err := filepath.EvalSymlinks(hostResolvConfPath)
+			if err == nil {
+				localPath, err = filepath.Abs(localPath)
+			}
+
+			if err != nil {
+				localPath = hostResolvConfPath
+			}
+
+			extraMountPoints = append(extraMountPoints,
+				safechroot.NewMountPoint(localPath, resolvConfMountPoint, "", safechroot.BindMountPointFlags|unix.MS_RDONLY, ""))
+		}
+
+		// ...and the local.repo config file for tdnf
+		if *repoFile != "" {
+			extraMountPoints = append(extraMountPoints,
+				safechroot.NewMountPoint(filepath.Dir(*repoFile), repoFileMountPoint, "", safechroot.BindMountPointFlags, ""))
+		}
+
+		// If we didn't receive a prebuilt tdnf tar, then let's build one.
+		if *tdnfTar == "" {
+			// TODO: Don't hard-code these things.
+			const repoUri = "https://packages.microsoft.com/cbl-mariner/2.0/prod/base/x86_64"
+			tdnfRequiredPackages := []string{
+				"ca-certificates",               // required to use HTTPS
+				"ca-certificates-base",          // required to use HTTPS
+				"prebuilt-ca-certificates",      // required to use HTTPS
+				"prebuilt-ca-certificates-base", // required to use HTTPS
+				"coreutils",                     // basic utils required by tooling
+				"expat-libs",                    // ??? tdnf fails without this
+				"gnupg2",                        // needed for gpgconf, called by tools
+				"libssh2",                       // ??? tdnf fails without this
+				"krb5",                          // ??? tdnf fails without this
+				"libassuan",                     // ??? tdnf fails without this
+				"mariner-release",               // helps tdnf know which release we're on
+				"mariner-repos",                 // allows tdnf to find packages.microsoft.com
+				"mariner-rpm-macros",            // ???
+				"pcre-libs",                     // required for an rpm plugin
+				"rpm",                           // required for package installation
+				"sed",                           // required by tooling
+				"sqlite-libs",                   // required by tdnf
+				"sqlite-devel",                  // required because -libs is missing an .so symlink
+				"tdnf",                          // required for installing packages
+				"util-linux",                    // mount and other similar utils required by tooling
+
+				// TODO: reenable gpg plugin
+				// "tdnf-plugin-repogpgcheck",      // tdnf plugin for gpg checking
+			}
+
+			*tdnfTar = path.Join(buildDir, "tdnf-worker.tar.gz")
+
+			logger.Log.Infof("Constructing tdnf worker from upstream package source.")
+
+			err = gogetrpm.BuildTdnfWorkerTarball(repoUri, tdnfRequiredPackages, *tdnfTar)
+			if err != nil {
+				logger.Log.Errorf("Failed to build tdnf worker; error: %v", err)
+				return
+			}
+		}
 
 		setupChroot := safechroot.NewChroot(setupChrootDir, existingChrootDir)
 		err = setupChroot.Initialize(*tdnfTar, extraDirectories, extraMountPoints)
@@ -232,6 +313,8 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 			logger.Log.Error("Failed to copy extra files into setup chroot")
 			return
 		}
+
+		logger.Log.Debug("Building image in chroot...")
 
 		err = setupChroot.Run(func() error {
 			return buildImage(mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, partIDToDevPathMap, partIDToFsTypeMap, mountPointToOverlayMap, packagesToInstall, systemConfig, diskDevPath, isRootFS, encryptedRoot, readOnlyRoot, diffDiskBuild)
@@ -501,9 +584,12 @@ func buildImage(mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, 
 
 	var installMap map[string]string
 
+	logger.Log.Debug("Building image...")
+
 	// Only invoke CreateInstallRoot for a raw disk. This call will result in mount points being created from a raw disk
 	// into the install root. A rootfs will not have these.
 	if !isRootFS {
+		logger.Log.Debug("Creating install root...")
 		installMap, err = installutils.CreateInstallRoot(installRoot, mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, mountPointToOverlayMap)
 		if err != nil {
 			err = fmt.Errorf("failed to create install root: %s", err)
@@ -513,6 +599,7 @@ func buildImage(mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, 
 	}
 
 	// Install any tools required for the setup root to function
+	logger.Log.Debug("Installing tools required for setup root...")
 	setupChrootPackages := []string{}
 	toolingPackages := installutils.GetRequiredPackagesForInstall()
 	for _, toolingPackage := range toolingPackages {
@@ -529,7 +616,9 @@ func buildImage(mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, 
 		setupChrootPackages = append(setupChrootPackages, verityPackages...)
 	}
 
+	logger.Log.Debug("Installing packages with tdnf...")
 	for _, setupChrootPackage := range setupChrootPackages {
+		logger.Log.Debug("Installing tools required for setup root...")
 		_, err = installutils.TdnfInstall(setupChrootPackage, rootDir)
 		if err != nil {
 			err = fmt.Errorf("failed to install required setup chroot package '%s': %w", setupChrootPackage, err)
@@ -538,6 +627,7 @@ func buildImage(mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, 
 	}
 
 	// Create new chroot for the new image
+	logger.Log.Debug("Creating chroot for new image...")
 	installChroot := safechroot.NewChroot(installRoot, existingChrootDir)
 	extraInstallMountPoints := []*safechroot.MountPoint{}
 	extraDirectories := []string{}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -63,9 +64,9 @@ type Chroot struct {
 // registerSIGTERMCleanup has been invoked. Use a slice instead of a map
 // to ensure chroots can be cleaned up in LIFO order incase any are interdependent.
 // Note:
-// - Docker based build doesn't need to maintain activeChroots because chroot come from
-//   a pre-existing pool of chroots
-//   (as opposed to regular build which create a new chroot each time a spec is built)
+//   - Docker based build doesn't need to maintain activeChroots because chroot come from
+//     a pre-existing pool of chroots
+//     (as opposed to regular build which create a new chroot each time a spec is built)
 var (
 	inChrootMutex      sync.Mutex
 	activeChrootsMutex sync.Mutex
@@ -209,6 +210,7 @@ func (c *Chroot) Initialize(tarPath string, extraDirectories []string, extraMoun
 
 	// Extract a given tarball if necessary
 	if tarPath != "" {
+		logger.Log.Infof("Extracting worker tar: %s", tarPath)
 		err = extractWorkerTar(c.rootDir, tarPath)
 		if err != nil {
 			logger.Log.Warnf("Could not extract worker tar (%s)", err)
@@ -523,15 +525,33 @@ func (c *Chroot) createMountPoints(allMountPoints []*MountPoint) (err error) {
 		logger.Log.Debugf("Mounting: source: (%s), target: (%s), fstype: (%s), flags: (%#x), data: (%s)",
 			mountPoint.source, fullPath, mountPoint.fstype, mountPoint.flags, mountPoint.data)
 
-		err = os.MkdirAll(fullPath, os.ModePerm)
+		dirToCreate := fullPath
+		createTargetAsFile := false
+		if (mountPoint.flags & BindMountPointFlags) != 0 {
+			sourceInfo, err := os.Stat(mountPoint.source)
+			if err == nil && !sourceInfo.IsDir() {
+				createTargetAsFile = true
+				dirToCreate = path.Dir(fullPath)
+			}
+		}
+
+		err = os.MkdirAll(dirToCreate, os.ModePerm)
 		if err != nil {
-			logger.Log.Warnf("Could not create directory (%s)", fullPath)
+			logger.Log.Warnf("Could not create directory (%s)", dirToCreate)
 			return
+		}
+
+		if createTargetAsFile {
+			err = os.WriteFile(fullPath, []byte{}, os.ModePerm)
+			if err != nil {
+				logger.Log.Warnf("Could not create file (%s): %v", fullPath, err)
+				return
+			}
 		}
 
 		err = unix.Mount(mountPoint.source, fullPath, mountPoint.fstype, mountPoint.flags, mountPoint.data)
 		if err != nil {
-			logger.Log.Errorf("Mount failed on (%s). Error: %s", fullPath, err)
+			logger.Log.Errorf("Mount failed: %s => %s. Error: %s", mountPoint.source, fullPath, err)
 			return
 		}
 
@@ -550,5 +570,6 @@ func extractWorkerTar(chroot string, workerTar string) (err error) {
 
 	logger.Log.Debugf("Using (%s) to extract tar", gzipTool)
 	_, _, err = shell.Execute("tar", "-I", gzipTool, "-xf", workerTar, "-C", chroot)
+
 	return
 }
