@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/assets"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/configuration"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/diskutils"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
@@ -292,7 +293,9 @@ func umount(path string) (err error) {
 // PackageNamesFromSingleSystemConfig goes through the "PackageLists" and "Packages" fields in the "SystemConfig" object, extracting
 // from packageList JSONs and packages listed in config itself to create one comprehensive package list.
 // NOTE: the package list contains the versions restrictions for the packages, if present, in the form "[package][condition][version]".
-//       Example: gcc=9.1.0
+//
+//	Example: gcc=9.1.0
+//
 // - systemConfig is the systemconfig field from the config file
 // Since kernel is not part of the packagelist, it is added separately from KernelOptions.
 func PackageNamesFromSingleSystemConfig(systemConfig configuration.SystemConfig) (finalPkgList []string, err error) {
@@ -626,7 +629,7 @@ func initializeTdnfConfiguration(installRoot string) (err error) {
 		return
 	}
 
-	err = shell.ExecuteLive(squashErrors, "tdnf", "download", releaseverCliArg, "--alldeps", "--destdir", installRoot, releasePackage)
+	err = shell.ExecuteLive(squashErrors, "tdnf", "download", releaseverCliArg, "--alldeps", "--assumeyes", "--destdir", installRoot, releasePackage)
 	if err != nil {
 		logger.Log.Errorf("Failed to prepare the RPM database on downloading the 'mariner-release' package: %v", err)
 		return
@@ -977,16 +980,31 @@ func addEntryToCrypttab(installRoot string, devicePath string, encryptedRoot dis
 	return
 }
 
-//InstallGrubEnv installs an empty grubenv f
+// InstallGrubEnv installs an empty grubenv file
 func InstallGrubEnv(installRoot string) (err error) {
 	const (
-		assetGrubEnvFile = "/installer/grub2/grubenv"
+		assetGrubEnvFile = "assets/grub2/grubenv"
 		grubEnvFile      = "boot/grub2/grubenv"
 	)
+
 	installGrubEnvFile := filepath.Join(installRoot, grubEnvFile)
-	err = file.CopyAndChangeMode(assetGrubEnvFile, installGrubEnvFile, bootDirectoryDirMode, bootDirectoryFileMode)
+
+	// Create the dest dir if eneded
+	err = os.MkdirAll(path.Dir(installGrubEnvFile), bootDirectoryDirMode)
 	if err != nil {
-		logger.Log.Warnf("Failed to copy and change mode of grubenv: %v", err)
+		logger.Log.Warnf("Failed to create grub env dir: %v", err)
+		return
+	}
+
+	// Copy the file and set permissions
+	fileContents, err := assets.Assets.ReadFile(assetGrubEnvFile)
+	if err != nil {
+		logger.Log.Warnf("Failed to read source grub env: %v", err)
+		return
+	}
+	err = os.WriteFile(installGrubEnvFile, fileContents, bootDirectoryFileMode)
+	if err != nil {
+		logger.Log.Warnf("Failed to create grub env file: %v", err)
 		return
 	}
 
@@ -1003,14 +1021,28 @@ func InstallGrubEnv(installRoot string) (err error) {
 // This boot partition specifically indicates where to find the kernel, config files, and initrd
 func InstallGrubCfg(installRoot, rootDevice, bootUUID, bootPrefix string, encryptedRoot diskutils.EncryptedRootDevice, kernelCommandLine configuration.KernelCommandLine, readOnlyRoot diskutils.VerityDevice) (err error) {
 	const (
-		assetGrubcfgFile = "/installer/grub2/grub.cfg"
+		assetGrubcfgFile = "assets/grub2/grub.cfg"
 		grubCfgFile      = "boot/grub2/grub.cfg"
 	)
 
-	// Copy the bootloader's grub.cfg and set the file permission
 	installGrubCfgFile := filepath.Join(installRoot, grubCfgFile)
-	err = file.CopyAndChangeMode(assetGrubcfgFile, installGrubCfgFile, bootDirectoryDirMode, bootDirectoryFileMode)
+
+	// Create the dest dir if needed
+	err = os.MkdirAll(path.Dir(installGrubCfgFile), bootDirectoryDirMode)
 	if err != nil {
+		logger.Log.Warnf("Failed to create grub cfg dir: %v", err)
+		return
+	}
+
+	// Copy the bootloader's grub.cfg and set the file permission
+	fileContents, err := assets.Assets.ReadFile(assetGrubcfgFile)
+	if err != nil {
+		logger.Log.Warnf("Failed to read source grub cfg: %v", err)
+		return
+	}
+	err = os.WriteFile(installGrubCfgFile, fileContents, bootDirectoryFileMode)
+	if err != nil {
+		logger.Log.Warnf("Failed to create grub cfg file: %v", err)
 		return
 	}
 
@@ -1780,7 +1812,8 @@ func GetPartLabel(device string) (stdout string, err error) {
 }
 
 // FormatMountIdentifier finds the requested identifier type for the given device, and formats it for use
-//  ie "UUID=12345678-abcd..."
+//
+//	ie "UUID=12345678-abcd..."
 func FormatMountIdentifier(identifier configuration.MountIdentifier, device string) (identifierString string, err error) {
 	var id string
 	switch identifier {
@@ -1840,7 +1873,7 @@ func installEfiBootloader(encryptEnabled bool, installRoot, bootUUID, bootPrefix
 	const (
 		defaultCfgFilename = "grub.cfg"
 		encryptCfgFilename = "grubEncrypt.cfg"
-		grubAssetDir       = "/installer/efi/grub"
+		grubAssetDir       = "assets/efi/grub"
 		grubFinalDir       = "boot/grub2"
 	)
 
@@ -1849,10 +1882,24 @@ func installEfiBootloader(encryptEnabled bool, installRoot, bootUUID, bootPrefix
 	if encryptEnabled {
 		grubAssetPath = filepath.Join(grubAssetDir, encryptCfgFilename)
 	}
+
 	grubFinalPath := filepath.Join(installRoot, grubFinalDir, defaultCfgFilename)
-	err = file.CopyAndChangeMode(grubAssetPath, grubFinalPath, bootDirectoryDirMode, bootDirectoryFileMode)
+
+	err = os.MkdirAll(path.Dir(grubFinalPath), bootDirectoryDirMode)
 	if err != nil {
-		logger.Log.Warnf("Failed to copy grub.cfg: %v", err)
+		logger.Log.Warnf("Failed to create grub cfg dir: %v", err)
+		return
+	}
+
+	fileContents, err := assets.Assets.ReadFile(grubAssetPath)
+	if err != nil {
+		logger.Log.Warnf("Failed to read source grub cfg: %v", err)
+		return
+	}
+
+	err = os.WriteFile(grubFinalPath, fileContents, bootDirectoryFileMode)
+	if err != nil {
+		logger.Log.Warnf("Failed to create grub cfg file: %v", err)
 		return
 	}
 
@@ -2357,7 +2404,7 @@ func createRDiffArtifact(workDirPath, devPath, rDiffBaseImage, name string) (err
 	return shell.ExecuteLive(squashErrors, "rdiff", rdiffArgs...)
 }
 
-//KernelPackages returns a list of kernel packages obtained from KernelOptions in the config's SystemConfigs
+// KernelPackages returns a list of kernel packages obtained from KernelOptions in the config's SystemConfigs
 func KernelPackages(config configuration.Config) []*pkgjson.PackageVer {
 	var packageList []*pkgjson.PackageVer
 	// Add all the provided kernels to the package list

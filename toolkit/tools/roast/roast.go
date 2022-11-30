@@ -40,11 +40,11 @@ var (
 	logFile  = exe.LogFileFlag(app)
 	logLevel = exe.LogLevelFlag(app)
 
-	inputDir  = exe.InputDirFlag(app, "A directory containing a .RAW image or a rootfs directory")
-	outputDir = exe.OutputDirFlag(app, "A destination directory for the output image")
+	inputDir  = app.Flag("dir", "A directory containing a .RAW image or a rootfs directory").String()
+	outputDir = app.Flag("output-dir", "A destination directory for the output image").String()
 
 	configFile = app.Flag("config", "Path to the image config file.").Required().ExistingFile()
-	tmpDir     = app.Flag("tmp-dir", "Directory to store temporary files while converting.").Required().String()
+	tmpDir     = app.Flag("tmp-dir", "Directory to store temporary files while converting.").String()
 
 	releaseVersion = app.Flag("release-version", "Release version to add to the output artifact name").String()
 
@@ -57,6 +57,17 @@ func main() {
 	app.Version(exe.ToolkitVersion)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 	logger.InitBestEffort(*logFile, *logLevel)
+
+	// Set some defaults
+	if *inputDir == "" {
+		*inputDir = "build"
+	}
+	if *outputDir == "" {
+		*outputDir = "output"
+	}
+	if *tmpDir == "" {
+		*tmpDir = "build"
+	}
 
 	if *workers <= 0 {
 		logger.Log.Panicf("Value in --workers must be greater than zero. Found %d", *workers)

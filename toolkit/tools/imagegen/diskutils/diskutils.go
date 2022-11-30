@@ -203,15 +203,14 @@ func CreateEmptyDisk(workDirPath, diskName string, disk configuration.Disk) (dis
 // ZeroDisk applies zeroes to the disk specified by diskpath
 func ZeroDisk(diskPath string, blockSize, size uint64) (err error) {
 	ddArgs := []string{
-		"if=/dev/zero",                  // Input file.
-		fmt.Sprintf("of=%s", diskPath),  // Output file.
-		fmt.Sprintf("bs=%d", blockSize), // Size of one copied block.
-		fmt.Sprintf("count=%d", size),   // Number of blocks to copy to the output file.
+		"-l",                              // Indicates length.
+		fmt.Sprintf("%d", blockSize*size), // Total size.
+		diskPath,                          // Output file.
 	}
 
-	_, stderr, err := shell.Execute("dd", ddArgs...)
+	_, stderr, err := shell.Execute("fallocate", ddArgs...)
 	if err != nil {
-		logger.Log.Warnf("Failed to create empty disk with dd: %v", stderr)
+		logger.Log.Warnf("Failed to create empty disk with fallocate: %v", stderr)
 	}
 	return
 }
