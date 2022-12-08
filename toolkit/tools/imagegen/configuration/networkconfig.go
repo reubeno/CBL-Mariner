@@ -19,7 +19,7 @@ import (
 )
 
 type Network struct {
-	BootProto   string   `json:"BootProto"`
+	BootProto   string   `json:"BootProto" jsonschema:"enum=dhcp,enum=static,enum=bootp,enum=ibft"`
 	GateWay     string   `json:"GateWay"`
 	Ip          string   `json:"Ip"`
 	NetMask     string   `json:"NetMask"`

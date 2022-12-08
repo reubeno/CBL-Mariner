@@ -20,9 +20,10 @@ import (
 // Artifact [non-ISO image building only] defines the name, type
 // and optional compression of the output Mariner image.
 type Artifact struct {
-	Compression string `json:"Compression"`
+	// TODO: Confirm Compression and Type enum values
+	Compression string `json:"Compression" jsonschema:"enum=gz,enum=tar.gz,enum=xz,enum=tar.xz"`
 	Name        string `json:"Name"`
-	Type        string `json:"Type"`
+	Type        string `json:"Type" jsonschema:"enum=raw,enum=vhd,enum=vhdx,enum=ova,enum=ext4,enum=initrd"`
 }
 
 // RawBinary allow the users to specify a binary they would
@@ -36,7 +37,7 @@ type RawBinary struct {
 // TargetDisk [kickstart-only] defines the physical disk, to which
 // Mariner should be installed.
 type TargetDisk struct {
-	Type  string `json:"Type"`
+	Type  string `json:"Type" jsonschema:"enum=path"`
 	Value string `json:"Value"`
 }
 

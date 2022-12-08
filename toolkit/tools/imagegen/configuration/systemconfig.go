@@ -19,7 +19,7 @@ type SystemConfig struct {
 	IsDefault            bool               `json:"IsDefault"`
 	IsKickStartBoot      bool               `json:"IsKickStartBoot"`
 	IsIsoInstall         bool               `json:"IsIsoInstall"`
-	BootType             string             `json:"BootType"`
+	BootType             string             `json:"BootType" jsonschema:"enum=efi,enum=legacy,enum=none"`
 	Hostname             string             `json:"Hostname"`
 	Name                 string             `json:"Name"`
 	PackageLists         []string           `json:"PackageLists"`

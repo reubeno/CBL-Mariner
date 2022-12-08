@@ -17,7 +17,7 @@ import (
 // Disk holds the disk partitioning, formatting and size information.
 // It may also define artifacts generated for each disk.
 type Disk struct {
-	PartitionTableType PartitionTableType `json:"PartitionTableType"`
+	PartitionTableType PartitionTableType `json:"PartitionTableType" jsonschema:"enum=mbr,enum=gpt"`
 	MaxSize            uint64             `json:"MaxSize"`
 	TargetDisk         TargetDisk         `json:"TargetDisk"`
 	Artifacts          []Artifact         `json:"Artifacts"`
