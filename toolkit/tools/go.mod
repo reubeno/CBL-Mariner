@@ -22,11 +22,14 @@ require (
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 )
 
+require github.com/iancoleman/orderedmap v0.0.0-20190318233801-ac98e3ecb4b0 // indirect
+
 require (
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
+	github.com/invopop/jsonschema v0.7.0
 	github.com/klauspost/compress v1.10.5 // indirect
 	github.com/lucasb-eyer/go-colorful v1.0.3 // indirect
 	github.com/mattn/go-runewidth v0.0.7 // indirect

@@ -1,0 +1,508 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/reubeno/CBL-Mariner/toolkit/tools/imagegen/configuration/config",
+  "$ref": "#/$defs/Config",
+  "$defs": {
+    "Artifact": {
+      "properties": {
+        "Compression": {
+          "type": "string",
+          "enum": [
+            "gz",
+            "tar.gz",
+            "xz",
+            "tar.xz"
+          ]
+        },
+        "Name": {
+          "type": "string"
+        },
+        "Type": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "vhd",
+            "vhdx",
+            "ova",
+            "ext4",
+            "initrd"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Config": {
+      "properties": {
+        "Disks": {
+          "items": {
+            "$ref": "#/$defs/Disk"
+          },
+          "type": "array"
+        },
+        "SystemConfigs": {
+          "items": {
+            "$ref": "#/$defs/SystemConfig"
+          },
+          "type": "array"
+        },
+        "DefaultSystemConfig": {
+          "$ref": "#/$defs/SystemConfig"
+        },
+        "$schema": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Disk": {
+      "properties": {
+        "PartitionTableType": {
+          "type": "string",
+          "enum": [
+            "mbr",
+            "gpt"
+          ]
+        },
+        "MaxSize": {
+          "type": "integer"
+        },
+        "TargetDisk": {
+          "$ref": "#/$defs/TargetDisk"
+        },
+        "Artifacts": {
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "type": "array"
+        },
+        "Partitions": {
+          "items": {
+            "$ref": "#/$defs/Partition"
+          },
+          "type": "array"
+        },
+        "RawBinaries": {
+          "items": {
+            "$ref": "#/$defs/RawBinary"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Group": {
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "GID": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "InstallScript": {
+      "properties": {
+        "Args": {
+          "type": "string"
+        },
+        "Path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "KernelCommandLine": {
+      "properties": {
+        "ImaPolicy": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "SELinux": {
+          "type": "string"
+        },
+        "ExtraCommandLine": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Network": {
+      "properties": {
+        "BootProto": {
+          "type": "string",
+          "enum": [
+            "dhcp",
+            "static",
+            "bootp",
+            "ibft"
+          ]
+        },
+        "GateWay": {
+          "type": "string"
+        },
+        "Ip": {
+          "type": "string"
+        },
+        "NetMask": {
+          "type": "string"
+        },
+        "OnBoot": {
+          "type": "boolean"
+        },
+        "NameServer": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "Device": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PackageRepo": {
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "BaseUrl": {
+          "type": "string"
+        },
+        "Install": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Partition": {
+      "properties": {
+        "FsType": {
+          "type": "string",
+          "enum": [
+            "ext2",
+            "ext3",
+            "ext4",
+            "fat16",
+            "fat32",
+            "vfat",
+            "linux-swap"
+          ]
+        },
+        "ID": {
+          "type": "string"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "End": {
+          "type": "integer"
+        },
+        "Start": {
+          "type": "integer"
+        },
+        "Flags": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "esp",
+              "grub",
+              "bios_grub",
+              "bios-grub",
+              "boot",
+              "dmroot",
+              "root"
+            ]
+          },
+          "type": "array"
+        },
+        "Artifacts": {
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PartitionSetting": {
+      "properties": {
+        "RemoveDocs": {
+          "type": "boolean"
+        },
+        "ID": {
+          "type": "string"
+        },
+        "MountIdentifier": {
+          "type": "string"
+        },
+        "MountOptions": {
+          "type": "string"
+        },
+        "MountPoint": {
+          "type": "string"
+        },
+        "OverlayBaseImage": {
+          "type": "string"
+        },
+        "RdiffBaseImage": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RawBinary": {
+      "properties": {
+        "BinPath": {
+          "type": "string"
+        },
+        "BlockSize": {
+          "type": "integer"
+        },
+        "Seek": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ReadOnlyVerityRoot": {
+      "properties": {
+        "Enable": {
+          "type": "boolean"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "ErrorCorrectionEnable": {
+          "type": "boolean"
+        },
+        "ErrorCorrectionEncodingRoots": {
+          "type": "integer"
+        },
+        "RootHashSignatureEnable": {
+          "type": "boolean"
+        },
+        "ValidateOnBoot": {
+          "type": "boolean"
+        },
+        "VerityErrorBehavior": {
+          "type": "string"
+        },
+        "TmpfsOverlays": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "TmpfsOverlaySize": {
+          "type": "string"
+        },
+        "TmpfsOverlayDebugEnabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RootEncryption": {
+      "properties": {
+        "Enable": {
+          "type": "boolean"
+        },
+        "Password": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SystemConfig": {
+      "properties": {
+        "IsDefault": {
+          "type": "boolean"
+        },
+        "IsKickStartBoot": {
+          "type": "boolean"
+        },
+        "IsIsoInstall": {
+          "type": "boolean"
+        },
+        "BootType": {
+          "type": "string",
+          "enum": [
+            "efi",
+            "legacy",
+            "none"
+          ]
+        },
+        "Hostname": {
+          "type": "string"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "PackageLists": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "Packages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "KernelOptions": {
+          "patternProperties": {
+            ".*": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "KernelCommandLine": {
+          "$ref": "#/$defs/KernelCommandLine"
+        },
+        "AdditionalFiles": {
+          "patternProperties": {
+            ".*": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "PartitionSettings": {
+          "items": {
+            "$ref": "#/$defs/PartitionSetting"
+          },
+          "type": "array"
+        },
+        "PreInstallScripts": {
+          "items": {
+            "$ref": "#/$defs/InstallScript"
+          },
+          "type": "array"
+        },
+        "PostInstallScripts": {
+          "items": {
+            "$ref": "#/$defs/InstallScript"
+          },
+          "type": "array"
+        },
+        "FinalizeImageScripts": {
+          "items": {
+            "$ref": "#/$defs/InstallScript"
+          },
+          "type": "array"
+        },
+        "Networks": {
+          "items": {
+            "$ref": "#/$defs/Network"
+          },
+          "type": "array"
+        },
+        "PackageRepos": {
+          "items": {
+            "$ref": "#/$defs/PackageRepo"
+          },
+          "type": "array"
+        },
+        "Groups": {
+          "items": {
+            "$ref": "#/$defs/Group"
+          },
+          "type": "array"
+        },
+        "Users": {
+          "items": {
+            "$ref": "#/$defs/User"
+          },
+          "type": "array"
+        },
+        "Encryption": {
+          "$ref": "#/$defs/RootEncryption"
+        },
+        "RemoveRpmDb": {
+          "type": "boolean"
+        },
+        "ReadOnlyVerityRoot": {
+          "$ref": "#/$defs/ReadOnlyVerityRoot"
+        },
+        "HidepidDisabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "TargetDisk": {
+      "properties": {
+        "Type": {
+          "type": "string",
+          "enum": [
+            "path"
+          ]
+        },
+        "Value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "User": {
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "UID": {
+          "type": "string"
+        },
+        "PasswordHashed": {
+          "type": "boolean"
+        },
+        "Password": {
+          "type": "string"
+        },
+        "PasswordExpiresDays": {
+          "type": "integer"
+        },
+        "SSHPubKeyPaths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "PrimaryGroup": {
+          "type": "string"
+        },
+        "SecondaryGroups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "StartupCommand": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  }
+}

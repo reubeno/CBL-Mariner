@@ -28,12 +28,12 @@ const (
 // "Grow" tells the logical volume to fill up any available space (**Only used for
 // kickstart-style unattended installation**)
 type Partition struct {
-	FsType    string          `json:"FsType"`
+	FsType    string          `json:"FsType" jsonschema:"enum=ext2,enum=ext3,enum=ext4,enum=fat16,enum=fat32,enum=vfat,enum=linux-swap"`
 	ID        string          `json:"ID"`
 	Name      string          `json:"Name"`
 	End       uint64          `json:"End"`
 	Start     uint64          `json:"Start"`
-	Flags     []PartitionFlag `json:"Flags"`
+	Flags     []PartitionFlag `json:"Flags" jsonschema:"enum=esp,enum=grub,enum=bios_grub,enum=bios-grub,enum=boot,enum=dmroot"`
 	Artifacts []Artifact      `json:"Artifacts"`
 }
 
