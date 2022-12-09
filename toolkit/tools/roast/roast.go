@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 
 	"github.com/reubeno/CBL-Mariner/toolkit/tools/imagegen/configuration"
 	"github.com/reubeno/CBL-Mariner/toolkit/tools/internal/exe"
@@ -167,6 +168,10 @@ func generateImageArtifacts(workers int, inDir, outDir, releaseVersion, imageTag
 			failedArtifacts = append(failedArtifacts, result.artifactName)
 		} else {
 			logger.Log.Infof("[%d/%d] Converted (%s) -> (%s)", (i + 1), numberOfArtifacts, result.originalPath, result.convertedFile)
+
+			// Make a best-effort attempt to update the ownership of the converted file, in case we're
+			// being run under sudo
+			updateOwnershipOfConvertedFile(result.convertedFile)
 		}
 	}
 
@@ -175,6 +180,40 @@ func generateImageArtifacts(workers int, inDir, outDir, releaseVersion, imageTag
 	}
 
 	return
+}
+
+func updateOwnershipOfConvertedFile(path string) error {
+	// If we're not running as root, don't worry about this.
+	if os.Geteuid() != 0 {
+		return nil
+	}
+
+	sudoUidStr := os.Getenv("SUDO_UID")
+	sudoGidStr := os.Getenv("SUDO_GID")
+
+	// If we're not clearly running under sudo, don't worry about this either.
+	if sudoUidStr == "" || sudoGidStr == "" {
+		return nil
+	}
+
+	sudoUid, err := strconv.Atoi(sudoUidStr)
+	if err != nil {
+		return nil
+	}
+
+	sudoGid, err := strconv.Atoi(sudoGidStr)
+	if err != nil {
+		return nil
+	}
+
+	logger.Log.Debugf("Running under sudo; moving ownership of %s to %d:%d\n", path, sudoUid, sudoGid)
+
+	err = os.Chown(path, sudoUid, sudoGid)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func retrievePartitionSettings(systemConfig *configuration.SystemConfig, searchedID string) (foundSetting *configuration.PartitionSetting) {
