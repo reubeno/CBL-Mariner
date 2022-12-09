@@ -33,7 +33,7 @@ type Partition struct {
 	Name      string          `json:"Name"`
 	End       uint64          `json:"End"`
 	Start     uint64          `json:"Start"`
-	Flags     []PartitionFlag `json:"Flags" jsonschema:"enum=esp,enum=grub,enum=bios_grub,enum=bios-grub,enum=boot,enum=dmroot"`
+	Flags     []PartitionFlag `json:"Flags" jsonschema:"enum=esp,enum=grub,enum=bios_grub,enum=bios-grub,enum=boot,enum=dmroot,enum=root"`
 	Artifacts []Artifact      `json:"Artifacts"`
 }
 

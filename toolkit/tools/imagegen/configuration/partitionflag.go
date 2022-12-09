@@ -26,6 +26,12 @@ const (
 	PartitionFlagBoot PartitionFlag = "boot"
 	// PartitionFlagDeviceMapperRoot indicates this partition will be used for a device mapper root device
 	PartitionFlagDeviceMapperRoot PartitionFlag = "dmroot"
+	// PartitionFlagRoot indicates this partition contains the root filesystem
+	PartitionFlagRoot PartitionFlag = "root"
+	// PartitionFlagKernel indicates this partition container the Linux kernel and related binaries
+	PartitionFlagKernel PartitionFlag = "kernel"
+	// PartitionFlagKernel indicates this partition contains /var data
+	PartitionFlagVar PartitionFlag = "var"
 )
 
 func (p PartitionFlag) String() string {
@@ -42,6 +48,9 @@ func (p *PartitionFlag) GetValidPartitionFlags() (types []PartitionFlag) {
 		PartitionFlagBiosGrubLegacy,
 		PartitionFlagBoot,
 		PartitionFlagDeviceMapperRoot,
+		PartitionFlagRoot,
+		PartitionFlagKernel,
+		PartitionFlagVar,
 	}
 }
 
