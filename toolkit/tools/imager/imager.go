@@ -71,6 +71,10 @@ func main() {
 
 	logger.InitBestEffort(*logFile, *logLevel)
 
+	if os.Geteuid() != 0 {
+		logger.Log.Panicf("This program must be run as root")
+	}
+
 	if *emitProgress {
 		installutils.EnableEmittingProgress()
 	}
