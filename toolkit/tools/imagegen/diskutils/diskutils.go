@@ -534,6 +534,31 @@ func InitializeSinglePartition(diskDevPath string, partitionNumber int, partitio
 			flagToSet = "boot"
 		case configuration.PartitionFlagDeviceMapperRoot:
 			//Ignore, only used for internal tooling
+		case configuration.PartitionFlagRoot:
+			// TODO: Needs to be architecture-specific (this is for x86_64)
+			if partitionTableType == "gpt" {
+				_, stderr, err := shell.Execute("flock", "--timeout", timeoutInSeconds, diskDevPath, "sfdisk", "--part-type", diskDevPath, partitionNumberStr, "4f68bce3-e8cd-4db1-96e7-fbcaf984b709")
+				if err != nil {
+					logger.Log.Errorf("Failed to set partition type using sfdisk: %v", stderr)
+					return "", err
+				}
+			}
+		case configuration.PartitionFlagKernel:
+			if partitionTableType == "gpt" {
+				_, stderr, err := shell.Execute("flock", "--timeout", timeoutInSeconds, diskDevPath, "sfdisk", "--part-type", diskDevPath, partitionNumberStr, "bc13c2ff-59e6-4262-a352-b275fd6f7172")
+				if err != nil {
+					logger.Log.Errorf("Failed to set partition type using sfdisk: %v", stderr)
+					return "", err
+				}
+			}
+		case configuration.PartitionFlagVar:
+			if partitionTableType == "gpt" {
+				_, stderr, err := shell.Execute("flock", "--timeout", timeoutInSeconds, diskDevPath, "sfdisk", "--part-type", diskDevPath, partitionNumberStr, "4d21b016-b534-45c2-a9fb-5c16e091fd2d")
+				if err != nil {
+					logger.Log.Errorf("Failed to set partition type using sfdisk: %v", stderr)
+					return "", err
+				}
+			}
 		default:
 			return partDevPath, fmt.Errorf("Partition %v - Unknown partition flag: %v", partitionNumber, flag)
 		}
