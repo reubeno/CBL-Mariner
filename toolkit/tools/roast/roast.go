@@ -252,7 +252,7 @@ func artifactConverterWorker(convertRequests chan *convertRequest, convertedResu
 }
 
 func convertArtifact(artifactName, outDir, format, imageTag, input string, isInputFile, appendExtension bool) (outputFile string, err error) {
-	typeConverter, err := converterFactory(format)
+	typeConverter, err := formats.ConverterFactory(format)
 	if err != nil {
 		return
 	}
@@ -276,41 +276,6 @@ func convertArtifact(artifactName, outDir, format, imageTag, input string, isInp
 	outputFile = fmt.Sprintf("%s%s%s", outputPath, imageTag, newExt)
 
 	err = typeConverter.Convert(input, outputFile, isInputFile)
-	return
-}
-
-func converterFactory(formatType string) (converter formats.Converter, err error) {
-	switch formatType {
-	case formats.RawType:
-		converter = formats.NewRaw()
-	case formats.Ext4Type:
-		converter = formats.NewExt4()
-	case formats.DiffType:
-		converter = formats.NewDiff()
-	case formats.RdiffType:
-		converter = formats.NewRdiff()
-	case formats.GzipType:
-		converter = formats.NewGzip()
-	case formats.TarGzipType:
-		converter = formats.NewTarGzip()
-	case formats.XzType:
-		converter = formats.NewXz()
-	case formats.TarXzType:
-		converter = formats.NewTarXz()
-	case formats.VhdType:
-		const gen2 = false
-		converter = formats.NewVhd(gen2)
-	case formats.VhdxType:
-		const gen2 = true
-		converter = formats.NewVhd(gen2)
-	case formats.InitrdType:
-		converter = formats.NewInitrd()
-	case formats.OvaType:
-		converter = formats.NewOva()
-	default:
-		err = fmt.Errorf("unsupported output format: %s", formatType)
-	}
-
 	return
 }
 
