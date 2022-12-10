@@ -654,7 +654,7 @@ func buildImage(mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, 
 	// Install any tools required for the setup root to function
 	logger.Log.Debug("Installing tools required for setup root...")
 	setupChrootPackages := []string{}
-	toolingPackages := installutils.GetRequiredPackagesForInstall()
+	toolingPackages := installutils.GetRequiredPackagesForInstall(systemConfig.BootType)
 	for _, toolingPackage := range toolingPackages {
 		setupChrootPackages = append(setupChrootPackages, toolingPackage.Name)
 	}

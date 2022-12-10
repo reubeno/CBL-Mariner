@@ -55,12 +55,12 @@ type PackageList struct {
 
 // GetRequiredPackagesForInstall returns the list of packages required for
 // the tooling to install an image
-func GetRequiredPackagesForInstall() []*pkgjson.PackageVer {
+func GetRequiredPackagesForInstall(bootType string) []*pkgjson.PackageVer {
 	packageList := []*pkgjson.PackageVer{}
 
 	// grub2-pc package is needed for the install tools to build/install the legacy grub bootloader
 	// Note: only required on x86_64 installs
-	if runtime.GOARCH == "amd64" {
+	if runtime.GOARCH == "amd64" && bootType == "legacy" {
 		packageList = append(packageList, &pkgjson.PackageVer{Name: "grub2-pc"})
 	}
 
