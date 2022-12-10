@@ -16,7 +16,7 @@ func TestShouldReturnCorrectRequiredPackagesForArch(t *testing.T) {
 	arm64RequiredPackages := []*pkgjson.PackageVer{}
 	amd64RequiredPackages := []*pkgjson.PackageVer{{Name: "grub2-pc"}}
 
-	requiredPackages := GetRequiredPackagesForInstall()
+	requiredPackages := GetRequiredPackagesForInstall("legacy")
 
 	switch arch := runtime.GOARCH; arch {
 	case "arm64":
