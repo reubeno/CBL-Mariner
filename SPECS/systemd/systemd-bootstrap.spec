@@ -1,7 +1,7 @@
 Summary:        Bootstrap version of systemd. Workaround for systemd circular dependency.
 Name:           systemd-bootstrap
-Version:        250.3
-Release:        8%{?dist}
+Version:        252.3
+Release:        1%{?dist}
 License:        LGPLv2+ AND GPLv2+ AND MIT
 Vendor:         Microsoft Corporation
 Distribution:   Mariner
@@ -11,15 +11,6 @@ Source0:        https://github.com/systemd/systemd-stable/archive/v%{version}.ta
 Source1:        50-security-hardening.conf
 Source2:        systemd.cfg
 Source3:        99-dhcp-en.network
-Patch0:         fix-journald-audit-logging.patch
-# Patch1 can be removed once we update systemd to a version containing the following commit:
-# https://github.com/systemd/systemd/commit/19193b489841a7bcccda7122ac0849cf6efe59fd
-Patch1:         add-fsync-sysusers-passwd.patch
-# Patch2 can be removed once we update systemd to a version containing the following commit:
-# https://github.com/systemd/systemd/commit/d5cb053cd93d516f516e0b748271b55f9dfb3a29
-Patch2:         gpt-auto-devno-not-determined.patch
-# Patch3 can be removed once we update to major version 251 or higher:
-Patch3:         CVE-2022-3821.patch
 BuildRequires:  docbook-dtd-xml
 BuildRequires:  docbook-style-xsl
 BuildRequires:  gettext
@@ -204,6 +195,7 @@ systemctl preset-all
 %{_libdir}/sysctl.d
 %{_libdir}/tmpfiles.d
 /lib/*.so*
+/lib/systemd/*.so*
 %{_libdir}/modprobe.d/systemd.conf
 %{_libdir}/sysusers.d/*
 %{_bindir}/*
@@ -233,6 +225,9 @@ systemctl preset-all
 %{_datadir}/pkgconfig/udev.pc
 
 %changelog
+* Fri Dec 10 2022 Reuben Olinsky <reubeno@microsoft.com> - 252.3-1
+- Upgrade to 252.3
+
 * Fri Nov 18 2022 Sam Meluch <sammeluch@microsoft.com> - 250.3-8
 - Add patch for CVE-2022-3821
 
