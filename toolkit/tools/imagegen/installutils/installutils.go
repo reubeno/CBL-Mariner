@@ -1713,10 +1713,11 @@ func getPackagesFromJSON(file string) (pkgList PackageList, err error) {
 // InstallBootloader installs the proper bootloader for this type of image
 // - installChroot is a pointer to the install Chroot object
 // - bootType indicates the type of boot loader to add.
+// - bootLoader indicates which boot loader to use.
 // - bootUUID is the UUID of the boot partition
 // Note: this boot partition could be different than the boot partition specified in the main grub config.
 // This boot partition specifically indicates where to find the main grub cfg
-func InstallBootloader(installChroot *safechroot.Chroot, encryptEnabled bool, bootType, bootUUID, bootPrefix, bootDevPath string) (err error) {
+func InstallBootloader(installChroot *safechroot.Chroot, encryptEnabled bool, bootType, bootLoader, bootUUID, bootPrefix, bootDevPath string) (err error) {
 	const (
 		efiMountPoint  = "/boot/efi"
 		efiBootType    = "efi"
@@ -1728,13 +1729,26 @@ func InstallBootloader(installChroot *safechroot.Chroot, encryptEnabled bool, bo
 
 	switch bootType {
 	case legacyBootType:
+		if bootLoader != "grub" && bootLoader != "" {
+			err = fmt.Errorf("unsupported boot loader for legacy boot: %v", bootLoader)
+			return
+		}
 		err = installLegacyBootloader(installChroot, bootDevPath, encryptEnabled)
 		if err != nil {
 			return
 		}
 	case efiBootType:
 		efiPath := filepath.Join(installChroot.RootDir(), efiMountPoint)
-		err = installEfiBootloader(encryptEnabled, efiPath, bootUUID, bootPrefix)
+		switch bootLoader {
+		case "":
+			fallthrough
+		case "grub":
+			err = installGrubEfiBootloader(encryptEnabled, efiPath, bootUUID, bootPrefix)
+		case "systemd-boot":
+			err = installSystemdBoot(encryptEnabled, installChroot, bootUUID, bootPrefix)
+		default:
+			err = fmt.Errorf("unsupported boot loader for UEFI boot: %v", bootLoader)
+		}
 		if err != nil {
 			return
 		}
@@ -1865,11 +1879,90 @@ func enableCryptoDisk() (err error) {
 	return
 }
 
-// installEfi copies the efi binaries and grub configuration to the appropriate
+func installSystemdBoot(encryptEnabled bool, installChroot *safechroot.Chroot, bootUUID, bootPrefix string) (err error) {
+	installConfPath := path.Join(installChroot.RootDir(), "etc", "kernel", "install.conf")
+
+	err = os.MkdirAll(path.Dir(installConfPath), 0755)
+	if err != nil {
+		logger.Log.Errorf("failed to create etc/kernel dir: %v", err)
+		return
+	}
+
+	err = os.WriteFile(installConfPath, []byte("layout=bls\n"), 0755)
+	if err != nil {
+		logger.Log.Errorf("failed to write install.conf: %v", err)
+		return
+	}
+
+	var kernelVer string
+	kernelVer, err = getKernelVersion(installChroot.RootDir())
+	if err != nil {
+		logger.Log.Errorf("failed to find kernel version: %v", err)
+		return
+	}
+
+	return installChroot.UnsafeRun(func() (err error) {
+		// TODO: don't hard-code boot path
+		logger.Log.Debugf("Installing systemd-boot")
+		err = shell.ExecuteLive(
+			false,
+			"bootctl",
+			"install",
+			"--no-variables",
+			"--esp-path=/boot/efi",
+			"--boot-path=/boot")
+
+		if err != nil {
+			logger.Log.Errorf("failed to install systemd-boot: %v", err)
+			return
+		}
+
+		// TODO: don't hard-code paths
+		logger.Log.Debugf("Installing kernel for use by systemd-boot: %s", kernelVer)
+		err = shell.ExecuteLive(
+			false,
+			"kernel-install",
+			"add",
+			kernelVer,
+			path.Join("/boot", fmt.Sprintf("vmlinuz-%s", kernelVer)),
+			path.Join("/boot", fmt.Sprintf("initrd.img-%s", kernelVer)))
+
+		if err != nil {
+			logger.Log.Errorf("failed to install kernel for booting by systemd-boot: %v", err)
+			return
+		}
+
+		// DBG:RRO
+		shell.ExecuteLive(false, "bootctl")
+
+		return nil
+	})
+}
+
+func getKernelVersion(installRoot string) (string, error) {
+	kernelPrefix := path.Join(installRoot, "boot", "vmlinuz-")
+
+	kernelMatches, err := filepath.Glob(fmt.Sprintf("%s*", kernelPrefix))
+	if err != nil {
+		logger.Log.Errorf("unable to find kernel: %v", err)
+		return "", err
+	}
+
+	// Assume only one kernel image present
+	if len(kernelMatches) != 1 {
+		logger.Log.Errorf("did not find single kernel image: %v", err)
+		return "", err
+	}
+
+	// Get the kernel version
+	return strings.TrimPrefix(kernelMatches[0], kernelPrefix), nil
+}
+
+// installGrubEfiBootloader copies the efi binaries and grub configuration to the appropriate
 // installRoot/boot/efi folder
 // It is expected that shim (bootx64.efi) and grub2 (grub2.efi) are installed
 // into the EFI directory via the package list installation mechanism.
-func installEfiBootloader(encryptEnabled bool, installRoot, bootUUID, bootPrefix string) (err error) {
+func installGrubEfiBootloader(encryptEnabled bool, installRoot, bootUUID, bootPrefix string) (err error) {
 	const (
 		defaultCfgFilename = "grub.cfg"
 		encryptCfgFilename = "grubEncrypt.cfg"

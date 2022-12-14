@@ -20,6 +20,7 @@ type SystemConfig struct {
 	IsKickStartBoot      bool               `json:"IsKickStartBoot"`
 	IsIsoInstall         bool               `json:"IsIsoInstall"`
 	BootType             string             `json:"BootType" jsonschema:"enum=efi,enum=legacy,enum=none"`
+	BootLoader           string             `json:"BootLoader" jsonschema:"enum=grub,enum=systemd-boot"`
 	Hostname             string             `json:"Hostname"`
 	Name                 string             `json:"Name"`
 	PackageLists         []string           `json:"PackageLists"`
@@ -81,6 +82,11 @@ func (s *SystemConfig) IsValid() (err error) {
 	// Validate BootType
 	if s.BootType != "efi" && s.BootType != "legacy" && s.BootType != "none" && s.BootType != "" {
 		return fmt.Errorf("invalid [BootType]: %s. Expecting values of either 'efi', 'legacy', 'none' or empty string.", s.BootType)
+	}
+
+	// Validate BootLoader
+	if s.BootLoader != "grub" && s.BootLoader != "systemd-boot" && s.BootLoader != "none" && s.BootLoader != "" {
+		return fmt.Errorf("invalid [BootLoader]: %s. Expecting values of either 'grub', 'systemd-boot', 'none' or empty string", s.BootLoader)
 	}
 
 	if len(s.PackageLists) == 0 && len(s.Packages) == 0 {
