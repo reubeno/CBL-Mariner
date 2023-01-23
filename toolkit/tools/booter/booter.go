@@ -380,23 +380,26 @@ outerFor:
 	close(stopChan)
 	<-ipAddrChan
 
-	// TODO: handle not getting IP address
-	if ipAddr != "" && ssh {
-		runSshClient(ipAddr)
+	// See if VM already shutdown
+	if err == nil {
+		// TODO: handle not getting IP address
+		if ipAddr != "" && ssh {
+			runSshClient(ipAddr)
 
-		logger.Log.Debugf("ssh client exited; shutting down VM")
+			logger.Log.Debugf("ssh client exited; shutting down VM")
 
-		shutdownErr := exec.Command("virsh", "shutdown", "--domain", vmName).Run()
-		if shutdownErr != nil {
-			logger.Log.Warnf("VM shutdown request failed: %v\n", shutdownErr)
+			shutdownErr := exec.Command("virsh", "shutdown", "--domain", vmName).Run()
+			if shutdownErr != nil {
+				logger.Log.Warnf("VM shutdown request failed: %v\n", shutdownErr)
+			}
 		}
-	}
 
-	// Wait for VM to shutdown
-	logger.Log.Debugf("waiting for VM to shutdown")
-	vmErr := <-vmChan
-	if vmErr != nil && err == nil {
-		err = vmErr
+		// Wait for VM to shutdown
+		logger.Log.Debugf("waiting for VM to shutdown")
+		vmErr := <-vmChan
+		if vmErr != nil && err == nil {
+			err = vmErr
+		}
 	}
 
 	logger.Log.Debugf("VM shutdown")
@@ -588,6 +591,13 @@ func launchUefiVmWithLibVirt(imagePath, metaUserDataImagePath string, enableGui,
 		"--cdrom", metaUserDataImagePath,
 		"-n", vmName,
 		"--quiet",
+		// "--qemu-commandline=-chardev",
+		// "--qemu-commandline=file,id=debuglog,path=/var/lib/libvirt/qemu/debuglog.txt",
+		"--qemu-commandline=-debugcon",
+		// "--qemu-commandline=chardev:debuglog",
+		"--qemu-commandline=stdio",
+		"--qemu-commandline=-global",
+		"--qemu-commandline=isa-debugcon.iobase=0x402",
 	}
 
 	if !enableGui {
