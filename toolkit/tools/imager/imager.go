@@ -8,8 +8,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
 
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/embeddedassets"
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/gogetrpm"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/configuration"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/diskutils"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/installutils"
@@ -17,24 +21,29 @@ import (
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/safechroot"
+	"golang.org/x/sys/unix"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
+// TODO: Don't hard-code.
+const releaseVer = "2.0"
+
 var (
-	app             = kingpin.New("imager", "Tool to create and install images.")
-	buildDir        = app.Flag("build-dir", "Directory to store temporary files while building.").ExistingDir()
-	configFile      = exe.InputFlag(app, "Path to the image config file.")
-	localRepo       = app.Flag("local-repo", "Path to local RPM repo").ExistingDir()
-	tdnfTar         = app.Flag("tdnf-worker", "Path to tdnf worker tarball").ExistingFile()
-	repoFile        = app.Flag("repo-file", "Full path to local.repo.").ExistingFile()
-	assets          = app.Flag("assets", "Path to assets directory.").ExistingDir()
-	baseDirPath     = app.Flag("base-dir", "Base directory for relative file paths from the config. Defaults to config's directory.").ExistingDir()
-	outputDir       = app.Flag("output-dir", "Path to directory to place final image.").ExistingDir()
-	liveInstallFlag = app.Flag("live-install", "Enable to perform a live install to the disk specified in config file.").Bool()
-	emitProgress    = app.Flag("emit-progress", "Write progress updates to stdout, such as percent complete and current action.").Bool()
-	logFile         = exe.LogFileFlag(app)
-	logLevel        = exe.LogLevelFlag(app)
+	app               = kingpin.New("imager", "Tool to create and install images.")
+	buildDir          = app.Flag("build-dir", "Directory to store temporary files while building.").Default("build").String()
+	configFile        = exe.InputFlag(app, "Path to the image config file.")
+	localRepo         = app.Flag("local-repo", "Path to local RPM repo").ExistingDir()
+	usePublishedRepos = app.Flag("use-published-repos", "Use published upstream repos accessible via the network").Bool()
+	tdnfTar           = app.Flag("tdnf-worker", "Path to tdnf worker tarball").ExistingFile()
+	repoFile          = app.Flag("repo-file", "Full path to local.repo.").ExistingFile()
+	assets            = app.Flag("assets", "Path to assets directory.").ExistingDir()
+	baseDirPath       = app.Flag("base-dir", "Base directory for relative file paths from the config. Defaults to config's directory.").ExistingDir()
+	outputDir         = app.Flag("output-dir", "Path to directory to place final image.").Default("out").String()
+	liveInstallFlag   = app.Flag("live-install", "Enable to perform a live install to the disk specified in config file.").Bool()
+	emitProgress      = app.Flag("emit-progress", "Write progress updates to stdout, such as percent complete and current action.").Bool()
+	logFile           = exe.LogFileFlag(app)
+	logLevel          = exe.LogLevelFlag(app)
 )
 
 const (
@@ -59,6 +68,36 @@ const (
 	kickstartPartitionFile = "/tmp/part-include"
 )
 
+var packagesRequiredForTdnfWorker []string = []string{
+	"ca-certificates",               // required to use HTTPS
+	"ca-certificates-base",          // required to use HTTPS
+	"prebuilt-ca-certificates",      // required to use HTTPS
+	"prebuilt-ca-certificates-base", // required to use HTTPS
+	"coreutils",                     // basic utils required by tooling
+	"expat-libs",                    // ??? tdnf fails without this
+	"gnupg2",                        // needed for gpgconf, called by tools
+	"libssh2",                       // ??? tdnf fails without this
+	"krb5",                          // ??? tdnf fails without this
+	"libassuan",                     // ??? tdnf fails without this
+	"nghttp2",                       // ??? tdnf fails without this
+	"mariner-release",               // helps tdnf know which release we're on
+	"mariner-repos",                 // allows tdnf to find packages.microsoft.com
+	"mariner-rpm-macros",            // ???
+	"pcre-libs",                     // required for an rpm plugin
+	"rpm",                           // required for package installation
+	"sed",                           // required by tooling
+	"sqlite-libs",                   // required by tdnf
+	"sqlite-devel",                  // required because -libs is missing an .so symlink
+	"tdnf",                          // required for installing packages
+	"util-linux",                    // mount and other similar utils required by tooling
+	"cryptsetup",                    // required for dm-crypt and related crypto operations
+	"veritysetup",                   // required for dm-verity
+	"lvm2",                          // required for dm-* (dmsetup)
+
+	// TODO: reenable gpg plugin
+	// "tdnf-plugin-repogpgcheck",      // tdnf plugin for gpg checking
+}
+
 func main() {
 	const defaultSystemConfig = 0
 
@@ -66,6 +105,10 @@ func main() {
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
 	logger.InitBestEffort(*logFile, *logLevel)
+
+	if os.Geteuid() != 0 {
+		logger.Log.Panicf("This program must be run as root")
+	}
 
 	if *emitProgress {
 		installutils.EnableEmittingProgress()
@@ -104,16 +147,18 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 	logger.Log.Infof("Building system configuration (%s)", systemConfig.Name)
 
 	const (
-		assetsMountPoint    = "/installer"
-		localRepoMountPoint = "/mnt/cdrom/RPMS"
-		repoFileMountPoint  = "/etc/yum.repos.d"
-		setupRoot           = "/setuproot"
-		installRoot         = "/installroot"
-		rootID              = "rootfs"
-		defaultDiskIndex    = 0
-		defaultTempDiskName = "disk.raw"
-		existingChrootDir   = false
-		leaveChrootOnDisk   = false
+		assetsMountPoint     = "/installer"
+		localRepoMountPoint  = "/mnt/cdrom/RPMS"
+		repoFileMountPoint   = "/etc/yum.repos.d/local.repo"
+		setupRoot            = "/setuproot"
+		installRoot          = "/installroot"
+		hostResolvConfPath   = "/etc/resolv.conf"
+		resolvConfMountPoint = "/etc/resolv.conf"
+		rootID               = "rootfs"
+		defaultDiskIndex     = 0
+		defaultTempDiskName  = "disk.raw"
+		existingChrootDir    = false
+		leaveChrootOnDisk    = false
 	)
 
 	var (
@@ -130,6 +175,14 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 		extraMountPoints       []*safechroot.MountPoint
 		extraDirectories       []string
 	)
+
+	// Make sure dirs exist
+	if buildDir != "" {
+		os.MkdirAll(buildDir, 0700)
+	}
+	if outputDir != "" {
+		os.MkdirAll(outputDir, 0700)
+	}
 
 	// Get list of packages to install into image
 	packagesToInstall, err := installutils.PackageNamesFromSingleSystemConfig(systemConfig)
@@ -196,7 +249,7 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 
 	setupChrootDir := filepath.Join(buildDir, setupRoot)
 
-	// Create Parition to Mountpoint map
+	// Create Partition to Mountpoint map
 	mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, diffDiskBuild := installutils.CreateMountPointPartitionMap(partIDToDevPathMap, partIDToFsTypeMap, systemConfig)
 	if diffDiskBuild {
 		mountPointToOverlayMap, err = installutils.UpdatePartitionMapWithOverlays(partIDToDevPathMap, partIDToFsTypeMap, mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, systemConfig)
@@ -209,13 +262,96 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 	}
 
 	if isOfflineInstall {
-		// Create setup chroot
-		additionalExtraMountPoints := []*safechroot.MountPoint{
-			safechroot.NewMountPoint(*assets, assetsMountPoint, "", safechroot.BindMountPointFlags, ""),
-			safechroot.NewMountPoint(*localRepo, localRepoMountPoint, "", safechroot.BindMountPointFlags, ""),
-			safechroot.NewMountPoint(filepath.Dir(*repoFile), repoFileMountPoint, "", safechroot.BindMountPointFlags, ""),
+		// If an asset dir path was provided, then bind-mount it. Otherwise, we'll end
+		// up taking the assets statically embedded into this binary and inject them
+		// into the chroot.
+		if *assets != "" {
+			extraMountPoints = append(extraMountPoints, safechroot.NewMountPoint(*assets, assetsMountPoint, "", safechroot.BindMountPointFlags, ""))
 		}
-		extraMountPoints = append(extraMountPoints, additionalExtraMountPoints...)
+
+		// If provided bind-mount the local RPM repo.
+		if *localRepo != "" {
+			extraMountPoints = append(extraMountPoints, safechroot.NewMountPoint(*localRepo, localRepoMountPoint, "", safechroot.BindMountPointFlags, ""))
+
+			// If provided bind-mount the repo definition file.
+			if *repoFile == "" {
+				tempLocalRepoFile, err := os.CreateTemp(buildDir, "local-*.repo")
+				if err != nil {
+					logger.Log.Error("Failed to create local repo config file")
+					return err
+				}
+
+				defer os.Remove(tempLocalRepoFile.Name())
+				*repoFile = tempLocalRepoFile.Name()
+
+				tempLocalRepoFile.WriteString(`
+[mariner-local-repo]
+name=Mariner Local Build Repo $releasever $basearch
+baseurl=file:///mnt/cdrom/RPMS
+gpgkey=file:///etc/pki/rpm-gpg/MICROSOFT-RPM-GPG-KEY
+enabled=1
+gpgcheck=0
+skip_if_unavailable=True
+sslverify=0
+`)
+
+				err = tempLocalRepoFile.Close()
+				if err != nil {
+					logger.Log.Error("Failed to close local repo config file")
+					return err
+				}
+			}
+
+			extraMountPoints = append(extraMountPoints, safechroot.NewMountPoint(*repoFile, repoFileMountPoint, "", safechroot.BindMountPointFlags, ""))
+		}
+
+		// If we've been asked to use public network-accessible repos, then we'll
+		// need to bind-mount resolv.conf so the chroot can use DNS.
+		if *usePublishedRepos {
+			localPath, err := filepath.EvalSymlinks(hostResolvConfPath)
+			if err == nil {
+				localPath, err = filepath.Abs(localPath)
+			}
+			if err != nil {
+				localPath = hostResolvConfPath
+			}
+			extraMountPoints = append(extraMountPoints,
+				safechroot.NewMountPoint(localPath, resolvConfMountPoint, "", safechroot.BindMountPointFlags|unix.MS_RDONLY, ""))
+		}
+
+		// If we weren't given a tarball for the worker and we've been asked to use
+		// public network-accessible repos, then create a worker tarball on the fly.
+		if *tdnfTar == "" {
+			if !*usePublishedRepos {
+				logger.Log.Error("--tdnf-worker not specified, but --use-published-repos was not enabled either.")
+				return
+			}
+
+			*tdnfTar = path.Join(buildDir, "tdnf-worker.tar.gz")
+			defer os.Remove(*tdnfTar)
+
+			repos := []string{}
+			if *localRepo != "" {
+				localRepoPath, err := filepath.Abs(*localRepo)
+				if err != nil {
+					logger.Log.Errorf("Failed to get absolute path to local repo; error: %v", err)
+					return err
+				}
+
+				repos = append(repos, fmt.Sprintf("file://%s", localRepoPath))
+			}
+
+			repoUri := getUpstreamPackageRepoUri()
+			repos = append(repos, repoUri)
+
+			logger.Log.Infof("Constructing tdnf worker from upstream package source: %s", repoUri)
+
+			err = gogetrpm.BuildTdnfWorkerTarball(repos, packagesRequiredForTdnfWorker, *tdnfTar)
+			if err != nil {
+				logger.Log.Errorf("Failed to build tdnf worker; error: %v", err)
+				return
+			}
+		}
 
 		setupChroot := safechroot.NewChroot(setupChrootDir, existingChrootDir)
 		err = setupChroot.Initialize(*tdnfTar, extraDirectories, extraMountPoints)
@@ -231,6 +367,21 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 		if err != nil {
 			logger.Log.Error("Failed to copy extra files into setup chroot")
 			return
+		}
+
+		// If an assets dir wasn't provided, copy in the default assets embedded
+		// in this binary.
+		if *assets == "" {
+			dirToCopy := safechroot.FileToCopy{
+				Src:  embeddedassets.Root,
+				Dest: assetsMountPoint,
+			}
+
+			err = setupChroot.AddDirs(embeddedassets.Assets, dirToCopy)
+			if err != nil {
+				logger.Log.Error("Failed to copy embedded assets into setup chroot")
+				return
+			}
 		}
 
 		err = setupChroot.Run(func() error {
@@ -283,6 +434,22 @@ func buildSystemConfig(systemConfig configuration.SystemConfig, disks []configur
 	}
 
 	return
+}
+
+func getUpstreamPackageRepoUri() string {
+	// TODO: Allow overriding arch for cross-architecture builds.
+	var arch string
+	switch runtime.GOARCH {
+	case "amd64":
+		arch = "x86_64"
+	case "arm64":
+		arch = "aarch64"
+	default:
+		logger.Log.Panicf("Unsupported architecture")
+	}
+
+	// TODO: Add other repos.
+	return fmt.Sprintf("https://packages.microsoft.com/cbl-mariner/%s/prod/base/%s", releaseVer, arch)
 }
 
 func setupDiskEncryption(systemConfig *configuration.SystemConfig, encryptedRoot *diskutils.EncryptedRootDevice, keyFileDir string) (err error) {
@@ -472,7 +639,7 @@ func cleanupExtraFiles() (err error) {
 	dirsToRemove := []string{additionalFilesTempDirectory, postInstallScriptTempDirectory, finalizeImageScriptTempDirectory, sshPubKeysTempDirectory}
 
 	for _, dir := range dirsToRemove {
-		logger.Log.Infof("Cleaning up directory %s", dir)
+		logger.Log.Debugf("Cleaning up directory %s", dir)
 		err = os.RemoveAll(dir)
 		if err != nil {
 			logger.Log.Warnf("Failed to cleanup directory (%s). Error: %s", dir, err)
@@ -519,7 +686,7 @@ func buildImage(mountPointMap, mountPointToFsTypeMap, mountPointToMountArgsMap, 
 		setupChrootPackages = append(setupChrootPackages, toolingPackage.Name)
 	}
 
-	logger.Log.Infof("HidepidDisabled is %v.", systemConfig.HidepidDisabled)
+	logger.Log.Debugf("HidepidDisabled is %v.", systemConfig.HidepidDisabled)
 	hidepidEnabled := !systemConfig.HidepidDisabled
 
 	if systemConfig.ReadOnlyVerityRoot.Enable {

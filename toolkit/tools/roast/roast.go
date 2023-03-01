@@ -40,11 +40,11 @@ var (
 	logFile  = exe.LogFileFlag(app)
 	logLevel = exe.LogLevelFlag(app)
 
-	inputDir  = exe.InputDirFlag(app, "A directory containing a .RAW image or a rootfs directory")
-	outputDir = exe.OutputDirFlag(app, "A destination directory for the output image")
+	inputDir  = app.Flag("dir", "A directory containing a .RAW image or a rootfs directory").Default("out").ExistingDir()
+	outputDir = app.Flag("output-dir", "A destination directory for the output image").Default("out").String()
 
 	configFile = app.Flag("config", "Path to the image config file.").Required().ExistingFile()
-	tmpDir     = app.Flag("tmp-dir", "Directory to store temporary files while converting.").Required().String()
+	tmpDir     = app.Flag("tmp-dir", "Directory to store temporary files while converting.").Default("build").String()
 
 	releaseVersion = app.Flag("release-version", "Release version to add to the output artifact name").String()
 
@@ -72,7 +72,7 @@ func main() {
 		logger.Log.Panicf("Error when calculating absolute output path: %s", err)
 	}
 
-	tmpDirPath, err := filepath.Abs(*outputDir)
+	tmpDirPath, err := filepath.Abs(*tmpDir)
 	if err != nil {
 		logger.Log.Panicf("Error when calculating absolute temporary path: %s", err)
 	}
@@ -80,6 +80,11 @@ func main() {
 	err = os.MkdirAll(outDirPath, os.ModePerm)
 	if err != nil {
 		logger.Log.Panicf("Error when creating output directory. Error: %s", err)
+	}
+
+	err = os.MkdirAll(tmpDirPath, os.ModePerm)
+	if err != nil {
+		logger.Log.Panicf("Error when creating temporary directory. Error: %s", err)
 	}
 
 	config, err := configuration.Load(*configFile)

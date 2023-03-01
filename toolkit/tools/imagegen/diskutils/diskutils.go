@@ -203,15 +203,14 @@ func CreateEmptyDisk(workDirPath, diskName string, disk configuration.Disk) (dis
 // ZeroDisk applies zeroes to the disk specified by diskpath
 func ZeroDisk(diskPath string, blockSize, size uint64) (err error) {
 	ddArgs := []string{
-		"if=/dev/zero",                  // Input file.
-		fmt.Sprintf("of=%s", diskPath),  // Output file.
-		fmt.Sprintf("bs=%d", blockSize), // Size of one copied block.
-		fmt.Sprintf("count=%d", size),   // Number of blocks to copy to the output file.
+		"-l",                              // Indicates length.
+		fmt.Sprintf("%d", blockSize*size), // Total size.
+		diskPath,                          // Output file.
 	}
 
-	_, stderr, err := shell.Execute("dd", ddArgs...)
+	_, stderr, err := shell.Execute("fallocate", ddArgs...)
 	if err != nil {
-		logger.Log.Warnf("Failed to create empty disk with dd: %v", stderr)
+		logger.Log.Warnf("Failed to create empty disk with fallocate: %v", stderr)
 	}
 	return
 }
@@ -238,7 +237,7 @@ func BlockOnDiskIO(diskDevPath string) (err error) {
 	)
 	var blockDevices blockDevicesOutput
 
-	logger.Log.Infof("Flushing all IO to disk for %s", diskDevPath)
+	logger.Log.Debugf("Flushing all IO to disk for %s", diskDevPath)
 	_, _, err = shell.Execute("sync")
 	if err != nil {
 		return
@@ -312,7 +311,7 @@ func BlockOnDiskIO(diskDevPath string) (err error) {
 
 // DetachLoopbackDevice detaches the specified disk
 func DetachLoopbackDevice(diskDevPath string) (err error) {
-	logger.Log.Infof("Detaching Loopback Device Path: %v", diskDevPath)
+	logger.Log.Debugf("Detaching Loopback Device Path: %v", diskDevPath)
 	_, stderr, err := shell.Execute("losetup", "-d", diskDevPath)
 	if err != nil {
 		logger.Log.Warnf("Failed to detach loopback device using losetup: %v", stderr)

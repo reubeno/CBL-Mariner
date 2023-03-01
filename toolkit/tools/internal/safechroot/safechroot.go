@@ -5,8 +5,11 @@ package safechroot
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -63,9 +66,9 @@ type Chroot struct {
 // registerSIGTERMCleanup has been invoked. Use a slice instead of a map
 // to ensure chroots can be cleaned up in LIFO order incase any are interdependent.
 // Note:
-// - Docker based build doesn't need to maintain activeChroots because chroot come from
-//   a pre-existing pool of chroots
-//   (as opposed to regular build which create a new chroot each time a spec is built)
+//   - Docker based build doesn't need to maintain activeChroots because chroot come from
+//     a pre-existing pool of chroots
+//     (as opposed to regular build which create a new chroot each time a spec is built)
 var (
 	inChrootMutex      sync.Mutex
 	activeChrootsMutex sync.Mutex
@@ -146,11 +149,12 @@ func NewChroot(rootDir string, isExistingDir bool) *Chroot {
 }
 
 // Initialize initializes a Chroot, creating directories and mount points.
-// - tarPath is an optional path to a tar file that will be extracted at the root of the chroot.
-// - extraDirectories is an optional slice of additional directories that should be created before attempting to
-//   mount inside the chroot.
-// - extraMountPoints is an optional slice of additional mount points that should be created inside the chroot,
-//   they will automatically be unmounted on a Chroot Close.
+//   - tarPath is an optional path to a tar file that will be extracted at the root of the chroot.
+//   - extraDirectories is an optional slice of additional directories that should be created before attempting to
+//     mount inside the chroot.
+//   - extraMountPoints is an optional slice of additional mount points that should be created inside the chroot,
+//     they will automatically be unmounted on a Chroot Close.
+//
 // This call will block until the chroot initializes successfully.
 // Only one Chroot will initialize at a given time.
 func (c *Chroot) Initialize(tarPath string, extraDirectories []string, extraMountPoints []*MountPoint) (err error) {
@@ -268,6 +272,78 @@ func (c *Chroot) AddFiles(filesToCopy ...FileToCopy) (err error) {
 		}
 	}
 	return
+}
+
+// AddDirs recursively copies the contents of the 'Src' directory to the relative path
+// chrootRootDir/'Dest' in the chroot.
+func (c *Chroot) AddDirs(srcFs fs.ReadDirFS, dirsToCopy ...FileToCopy) (err error) {
+	for _, d := range dirsToCopy {
+		dest := filepath.Join(c.rootDir, d.Dest)
+		logger.Log.Debugf("Recursively copying dir '%s' to worker '%s'", d.Src, dest)
+		err = recursivelyCopyDir(srcFs, d.Src, dest)
+		if err != nil {
+			logger.Log.Errorf("Error provisioning worker with '%s'", d.Src)
+			return
+		}
+	}
+	return
+}
+
+func recursivelyCopyDir(srcFs fs.ReadDirFS, src string, dest string) (err error) {
+	// Make sure dest dir has been created.
+	err = os.MkdirAll(dest, os.ModePerm)
+	if err != nil {
+		return
+	}
+
+	var items []fs.DirEntry
+	items, err = srcFs.ReadDir(src)
+	if err != nil {
+		return
+	}
+
+	for _, item := range items {
+		srcItemPath := filepath.Join(src, item.Name())
+		destItemPath := filepath.Join(dest, item.Name())
+		if item.IsDir() {
+			err = recursivelyCopyDir(srcFs, srcItemPath, destItemPath)
+		} else {
+			err = copyFileFromFs(srcFs, srcItemPath, destItemPath)
+		}
+
+		if err != nil {
+			return
+		}
+	}
+
+	return nil
+}
+
+// copyFileFromFs copies file 'src' from 'srcFs' to absolute file path 'dest'
+// (i.e., not in 'srcFs').
+func copyFileFromFs(srcFs fs.ReadDirFS, src string, dest string) (err error) {
+	logger.Log.Debugf("Copying file to worker: '%s' => '%s'", src, dest)
+
+	var srcFile fs.File
+	srcFile, err = srcFs.Open(src)
+	if err != nil {
+		return
+	}
+
+	var destFile *os.File
+	destFile, err = os.Create(dest)
+	if err != nil {
+		return
+	}
+
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, srcFile)
+	if err != nil {
+		return
+	}
+
+	return destFile.Close()
 }
 
 // Run runs a given function inside the Chroot. This function will synchronize
@@ -523,15 +599,33 @@ func (c *Chroot) createMountPoints(allMountPoints []*MountPoint) (err error) {
 		logger.Log.Debugf("Mounting: source: (%s), target: (%s), fstype: (%s), flags: (%#x), data: (%s)",
 			mountPoint.source, fullPath, mountPoint.fstype, mountPoint.flags, mountPoint.data)
 
-		err = os.MkdirAll(fullPath, os.ModePerm)
+		dirToCreate := fullPath
+		createTargetAsFile := false
+		if (mountPoint.flags & BindMountPointFlags) != 0 {
+			sourceInfo, err := os.Stat(mountPoint.source)
+			if err == nil && !sourceInfo.IsDir() {
+				createTargetAsFile = true
+				dirToCreate = path.Dir(fullPath)
+			}
+		}
+
+		err = os.MkdirAll(dirToCreate, os.ModePerm)
 		if err != nil {
 			logger.Log.Warnf("Could not create directory (%s)", fullPath)
 			return
 		}
 
+		if createTargetAsFile {
+			err = os.WriteFile(fullPath, []byte{}, os.ModePerm)
+			if err != nil {
+				logger.Log.Warnf("Could not create file (%s): %v", fullPath, err)
+				return
+			}
+		}
+
 		err = unix.Mount(mountPoint.source, fullPath, mountPoint.fstype, mountPoint.flags, mountPoint.data)
 		if err != nil {
-			logger.Log.Errorf("Mount failed on (%s). Error: %s", fullPath, err)
+			logger.Log.Errorf("Mount failed: %s => %s. Error: %s", mountPoint.source, fullPath, err)
 			return
 		}
 
