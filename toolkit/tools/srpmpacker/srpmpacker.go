@@ -28,6 +28,7 @@ import (
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/retry"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/rpm"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/safechroot"
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/shell"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/timestamp"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/pkg/profile"
 
@@ -73,10 +74,11 @@ const (
 
 // sourceRetrievalConfiguration holds information on where to hydrate files from.
 type sourceRetrievalConfiguration struct {
-	localSourceDir string
-	sourceURL      string
-	caCerts        *x509.CertPool
-	tlsCerts       []tls.Certificate
+	localSourceDir        string
+	sourceURL             string
+	caCerts               *x509.CertPool
+	tlsCerts              []tls.Certificate
+	customHydratorCommand string
 
 	signatureHandling signatureHandlingType
 	signatureLookup   map[string]string
@@ -123,6 +125,8 @@ var (
 	tlsClientCert = app.Flag("tls-cert", "TLS client certificate to use when downloading files.").String()
 	tlsClientKey  = app.Flag("tls-key", "TLS client key to use when downloading files.").String()
 
+	customHydratorCommand = app.Flag("custom-hydrator", "Custom command to hydrate missing artifacts.").String()
+
 	workerTar = app.Flag("worker-tar", "Full path to worker_chroot.tar.gz. If this argument is empty, SRPMs will be packed in the host environment.").ExistingFile()
 
 	validSignatureLevels = []string{signatureEnforceString, signatureSkipCheckString, signatureUpdateString}
@@ -164,6 +168,7 @@ func main() {
 	// Setup remote source configuration
 	templateSrcConfig.sourceURL = *sourceURL
 	templateSrcConfig.caCerts, err = x509.SystemCertPool()
+	templateSrcConfig.customHydratorCommand = *customHydratorCommand
 	logger.PanicOnError(err, "Received error calling x509.SystemCertPool(). Error: %v", err)
 	if *caCertFile != "" {
 		newCACert, err := ioutil.ReadFile(*caCertFile)
@@ -201,7 +206,7 @@ func createAllSRPMsWrapper(specsDir, distTag, buildDir, outDir, workerTar string
 	originalOutDir := outDir
 	if workerTar != "" {
 		const leaveFilesOnDisk = false
-		chroot, buildDir, outDir, specsDir, err = createChroot(workerTar, buildDir, outDir, specsDir)
+		chroot, buildDir, outDir, specsDir, err = createChroot(workerTar, buildDir, outDir, specsDir, sourceRetrievalConfiguration.customHydratorCommand)
 		if err != nil {
 			return
 		}
@@ -291,7 +296,7 @@ func findSPECFiles(specsDir string, packList map[string]bool) (specFiles []strin
 }
 
 // createChroot creates a chroot to pack SRPMs inside of.
-func createChroot(workerTar, buildDir, outDir, specsDir string) (chroot *safechroot.Chroot, newBuildDir, newOutDir, newSpecsDir string, err error) {
+func createChroot(workerTar, buildDir, outDir, specsDir, customHydratorCommand string) (chroot *safechroot.Chroot, newBuildDir, newOutDir, newSpecsDir string, err error) {
 	const (
 		chrootName       = "srpmpacker_chroot"
 		existingDir      = false
@@ -354,6 +359,11 @@ func createChroot(workerTar, buildDir, outDir, specsDir string) (chroot *safechr
 	// Networking support is needed to download sources.
 	files := []safechroot.FileToCopy{
 		{Src: "/etc/resolv.conf", Dest: "/etc/resolv.conf"},
+	}
+
+	// If provided, copy the custom hydrator command into the chroot.
+	if customHydratorCommand != "" {
+		files = append(files, safechroot.FileToCopy{Src: customHydratorCommand, Dest: customHydratorCommand})
 	}
 
 	err = chroot.AddFiles(files...)
@@ -838,12 +848,20 @@ func hydrateFiles(fileTypeToHydrate fileType, specFile, workingDir string, srcCo
 		fileHydrationState[fileNeeded] = false
 	}
 
-	// If the user provided an existing source dir, prefer it over remote sources.
+	// If the user provided an existing source dir, prefer it over remote sources or the custom hydrator.,
 	if srcConfig.localSourceDir != "" {
 		err = hydrateFromLocalSource(fileHydrationState, newSourceDir, srcConfig, skipSignatureHandling, currentSignatures)
 		// On error warn and default to hydrating from an external server.
 		if err != nil {
 			logger.Log.Warnf("Error hydrating from local source directory (%s): %v", srcConfig.localSourceDir, err)
+		}
+	}
+
+	// If a custom hydrator was provided, then give it a chance to hydrate before we look remotely.
+	if srcConfig.customHydratorCommand != "" {
+		err = hydrateByCustomCommand(fileHydrationState, specFile, newSourceDir, srcConfig, cancel, netOpsSemaphore)
+		if err != nil {
+			return
 		}
 	}
 
@@ -984,6 +1002,45 @@ func hydrateFromRemoteSource(fileHydrationState map[string]bool, newSourceDir st
 
 		fileHydrationState[fileName] = true
 		logger.Log.Debugf("Hydrated (%s) from (%s)", fileName, url)
+	}
+
+	return nil
+}
+
+func hydrateByCustomCommand(fileHydrationState map[string]bool, specFile, newSourceDir string, srcConfig sourceRetrievalConfiguration, cancel <-chan struct{}, netOpsSemaphore chan struct{}) (err error) {
+	var errPackerCancelReceived = fmt.Errorf("packer cancel signal received")
+
+	for fileName, alreadyHydrated := range fileHydrationState {
+		if alreadyHydrated {
+			continue
+		}
+
+		destinationFile := filepath.Join(newSourceDir, fileName)
+
+		// Limit the number of concurrent network operations by pushing a struct{} into the channel. This will block until
+		// another operation completes and removes the struct{} from the channel.
+		if netOpsSemaphore != nil {
+			select {
+			case netOpsSemaphore <- struct{}{}:
+			case <-cancel:
+				logger.Log.Debug("Cancellation signal received at network operation semaphore")
+				err = errPackerCancelReceived
+				return
+			}
+		}
+
+		// Spawn the custom command in a separate process, and ask it to hydrate the file.
+		// This allows the custom command to be written in any language, and not require
+		// any dependencies on the packer binary.
+		_, _, err := shell.Execute(srcConfig.customHydratorCommand, "--spec", specFile, "--filename", fileName, "--output", destinationFile)
+		if err != nil {
+			logger.Log.Warnf("Failed to run custom artifact resolver (%s). Error: %s", srcConfig.customHydratorCommand, err)
+		}
+
+		if netOpsSemaphore != nil {
+			// Clear the channel to allow another operation to start
+			<-netOpsSemaphore
+		}
 	}
 
 	return nil

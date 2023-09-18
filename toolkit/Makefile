@@ -142,6 +142,8 @@ CA_CERT     ?=
 TLS_CERT    ?=
 TLS_KEY     ?=
 
+CUSTOM_HYDRATOR ?=
+
 # panic,fatal,error,warn,info,debug,trace
 LOG_LEVEL          ?= info
 STOP_ON_WARNING    ?= n
