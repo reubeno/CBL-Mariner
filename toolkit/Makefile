@@ -143,6 +143,7 @@ TLS_CERT    ?=
 TLS_KEY     ?=
 
 CUSTOM_HYDRATOR ?=
+CUSTOM_HYDRATOR_CONFIG ?=
 
 # panic,fatal,error,warn,info,debug,trace
 LOG_LEVEL          ?= info

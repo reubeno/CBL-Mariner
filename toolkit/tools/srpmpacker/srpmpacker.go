@@ -74,11 +74,12 @@ const (
 
 // sourceRetrievalConfiguration holds information on where to hydrate files from.
 type sourceRetrievalConfiguration struct {
-	localSourceDir        string
-	sourceURL             string
-	caCerts               *x509.CertPool
-	tlsCerts              []tls.Certificate
-	customHydratorCommand string
+	localSourceDir           string
+	sourceURL                string
+	caCerts                  *x509.CertPool
+	tlsCerts                 []tls.Certificate
+	customHydratorCommand    string
+	customHydratorConfigPath string
 
 	signatureHandling signatureHandlingType
 	signatureLookup   map[string]string
@@ -125,7 +126,8 @@ var (
 	tlsClientCert = app.Flag("tls-cert", "TLS client certificate to use when downloading files.").String()
 	tlsClientKey  = app.Flag("tls-key", "TLS client key to use when downloading files.").String()
 
-	customHydratorCommand = app.Flag("custom-hydrator", "Custom command to hydrate missing artifacts.").String()
+	customHydratorCommand    = app.Flag("custom-hydrator", "Custom command to hydrate missing artifacts.").String()
+	customHydratorConfigPath = app.Flag("custom-hydrator-config", "Path to a configuration file for the custom hydrator command.").String()
 
 	workerTar = app.Flag("worker-tar", "Full path to worker_chroot.tar.gz. If this argument is empty, SRPMs will be packed in the host environment.").ExistingFile()
 
@@ -169,6 +171,7 @@ func main() {
 	templateSrcConfig.sourceURL = *sourceURL
 	templateSrcConfig.caCerts, err = x509.SystemCertPool()
 	templateSrcConfig.customHydratorCommand = *customHydratorCommand
+	templateSrcConfig.customHydratorConfigPath = *customHydratorConfigPath
 	logger.PanicOnError(err, "Received error calling x509.SystemCertPool(). Error: %v", err)
 	if *caCertFile != "" {
 		newCACert, err := ioutil.ReadFile(*caCertFile)
@@ -206,7 +209,7 @@ func createAllSRPMsWrapper(specsDir, distTag, buildDir, outDir, workerTar string
 	originalOutDir := outDir
 	if workerTar != "" {
 		const leaveFilesOnDisk = false
-		chroot, buildDir, outDir, specsDir, err = createChroot(workerTar, buildDir, outDir, specsDir, sourceRetrievalConfiguration.customHydratorCommand)
+		chroot, buildDir, outDir, specsDir, err = createChroot(workerTar, buildDir, outDir, specsDir, templateSrcConfig.customHydratorCommand, templateSrcConfig.customHydratorConfigPath)
 		if err != nil {
 			return
 		}
@@ -296,7 +299,7 @@ func findSPECFiles(specsDir string, packList map[string]bool) (specFiles []strin
 }
 
 // createChroot creates a chroot to pack SRPMs inside of.
-func createChroot(workerTar, buildDir, outDir, specsDir, customHydratorCommand string) (chroot *safechroot.Chroot, newBuildDir, newOutDir, newSpecsDir string, err error) {
+func createChroot(workerTar, buildDir, outDir, specsDir, customHydratorCommand, customHydratorConfigPath string) (chroot *safechroot.Chroot, newBuildDir, newOutDir, newSpecsDir string, err error) {
 	const (
 		chrootName       = "srpmpacker_chroot"
 		existingDir      = false
@@ -364,6 +367,12 @@ func createChroot(workerTar, buildDir, outDir, specsDir, customHydratorCommand s
 	// If provided, copy the custom hydrator command into the chroot.
 	if customHydratorCommand != "" {
 		files = append(files, safechroot.FileToCopy{Src: customHydratorCommand, Dest: customHydratorCommand})
+
+		// If provided, the custom hydrator's config file also needs to be copied into the chroot.
+		// This is the only way that the build can thread through configuration to the hydrator.
+		if customHydratorConfigPath != "" {
+			files = append(files, safechroot.FileToCopy{Src: customHydratorConfigPath, Dest: customHydratorConfigPath})
+		}
 	}
 
 	err = chroot.AddFiles(files...)
@@ -1032,7 +1041,12 @@ func hydrateByCustomCommand(fileHydrationState map[string]bool, specFile, newSou
 		// Spawn the custom command in a separate process, and ask it to hydrate the file.
 		// This allows the custom command to be written in any language, and not require
 		// any dependencies on the packer binary.
-		_, _, err := shell.Execute(srcConfig.customHydratorCommand, "--spec", specFile, "--filename", fileName, "--output", destinationFile)
+		var args = []string{"--spec", specFile, "--filename", fileName, "--output", destinationFile}
+		if srcConfig.customHydratorConfigPath != "" {
+			args = append(args, "--config", srcConfig.customHydratorConfigPath)
+		}
+
+		err := shell.ExecuteLive(false, srcConfig.customHydratorCommand, args...)
 		if err != nil {
 			logger.Log.Warnf("Failed to run custom artifact resolver (%s). Error: %s", srcConfig.customHydratorCommand, err)
 		}
