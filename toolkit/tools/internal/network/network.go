@@ -10,9 +10,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/downloadcache"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/logger"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/retry"
@@ -29,6 +31,49 @@ func JoinURL(baseURL string, extraPaths ...string) string {
 
 	appendToBase := strings.Join(extraPaths, urlPathSeparator)
 	return fmt.Sprintf("%s%s%s", baseURL, urlPathSeparator, appendToBase)
+}
+
+func CacheAwareDownloadFile(url, dst string, cache *downloadcache.DownloadCache, caCerts *x509.CertPool, tlsCerts []tls.Certificate) (err error) {
+	// Make sure the output file's dir tree exists.
+	os.MkdirAll(filepath.Dir(dst), os.ModePerm)
+
+	// First see if there's a cache hit.
+	if cache != nil {
+		var cacheEntry *downloadcache.DownloadCacheEntry
+		cacheEntry, err = cache.LookupDownloadByUri(url)
+		if err != nil {
+			logger.Log.Warnf("Failed to lookup download cache entry for (%s).\n%s", url, err)
+			err = nil
+		}
+
+		if cacheEntry != nil {
+			err = file.Copy(cacheEntry.Path, dst)
+			if err == nil {
+				return
+			} else {
+				logger.Log.Warnf("Failed to copy cached download (%s) to (%s).\n%s", cacheEntry.Path, dst, err)
+				err = nil
+			}
+		}
+	}
+
+	// If we got down here, then it was a cache miss or no cache was present; perform the download.
+	err = DownloadFile(url, dst, caCerts, tlsCerts)
+	if err != nil {
+		logger.Log.Warnf("Attempt to download (%s) failed. Error: %s", url, err)
+		return
+	}
+
+	// If we are using a cache, cache it!
+	if cache != nil {
+		_, err = cache.CacheDownload(url, dst)
+		if err != nil {
+			logger.Log.Warnf("Failed to cache download (%s).\n%s", url, err)
+			err = nil
+		}
+	}
+
+	return
 }
 
 // DownloadFile downloads `url` into `dst`. `caCerts` may be nil. If there is an error `dst` will be removed.

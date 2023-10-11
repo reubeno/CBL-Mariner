@@ -61,17 +61,17 @@ $(BUILD_SRPMS_DIR): $(STATUS_FLAGS_DIR)/build_srpms.flag
 	@echo Finished updating $@
 
 ifeq ($(DOWNLOAD_SRPMS),y)
-$(STATUS_FLAGS_DIR)/build_srpms.flag: $(local_specs) $(local_spec_dirs) $(local_spec_sources) $(SPECS_DIR)
+$(STATUS_FLAGS_DIR)/build_srpms.flag: $(local_specs) $(local_spec_dirs) $(local_spec_sources) $(SPECS_DIR) $(go-downloader)
 	for spec in $(local_specs); do \
 		spec_file=$${spec} && \
 		srpm_file=$$(rpmspec -q $${spec_file} --srpm --define='with_check 1' --define='dist $(DIST_TAG)' --queryformat %{NAME}-%{VERSION}-%{RELEASE}.src.rpm) && \
 		for url in $(SRPM_URL_LIST); do \
-			wget $${url}/$${srpm_file} \
-				-O $(BUILD_SRPMS_DIR)/$${srpm_file} \
-				--no-verbose \
-				$(if $(TLS_CERT),--certificate=$(TLS_CERT)) \
-				$(if $(TLS_KEY),--private-key=$(TLS_KEY)) \
-				&& \
+			GODEBUG=netdns=go $(go-downloader) \
+				--uri=$${url}/$${srpm_file} \
+				--output=$(BUILD_SRPMS_DIR)/$${srpm_file} \
+				$(if $(ARTIFACT_CACHE_DIR), --cache=$(ARTIFACT_CACHE_DIR)) \
+				$(if $(TLS_CERT),--tls-cert=$(TLS_CERT)) \
+				$(if $(TLS_KEY),--tls-key=$(TLS_KEY)) && \
 			touch $(BUILD_SRPMS_DIR)/$${srpm_file} && \
 			break; \
 		done || $(call print_error,Loop in $@ failed) ; \
@@ -88,6 +88,7 @@ $(STATUS_FLAGS_DIR)/build_srpms.flag: $(chroot_worker) $(local_specs) $(local_sp
 	GODEBUG=netdns=go $(go-srpmpacker) \
 		--dir=$(SPECS_DIR) \
 		--output-dir=$(BUILD_SRPMS_DIR) \
+		$(if $(ARTIFACT_CACHE_DIR), --cache=$(ARTIFACT_CACHE_DIR)) \
 		--source-url=$(SOURCE_URL) \
 		--dist-tag=$(DIST_TAG) \
 		--ca-cert=$(CA_CERT) \
@@ -113,6 +114,7 @@ $(STATUS_FLAGS_DIR)/build_toolchain_srpms.flag: $(toolchain_spec_list) $(go-srpm
 	GODEBUG=netdns=go $(go-srpmpacker) \
 		--dir=$(SPECS_DIR) \
 		--output-dir=$(BUILD_SRPMS_DIR) \
+		$(if $(ARTIFACT_CACHE_DIR), --cache=$(ARTIFACT_CACHE_DIR)) \
 		--source-url=$(SOURCE_URL) \
 		--dist-tag=$(DIST_TAG) \
 		--ca-cert=$(CA_CERT) \

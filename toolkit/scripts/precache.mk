@@ -35,6 +35,7 @@ $(STATUS_FLAGS_DIR)/precache.flag: $(go-precacher) $(chroot_worker) $(rpms_snaps
 		--snapshot "$(rpms_snapshot)" \
 		--output-dir "$(remote_rpms_cache_dir)" \
 		--output-summary-file "$(precache_downloaded_files)" \
+		$(if $(ARTIFACT_CACHE_DIR), --cache=$(ARTIFACT_CACHE_DIR)) \
 		--repo-urls-file "$(repo_urls_file)" \
 		$(foreach url,$(PACKAGE_URL_LIST), --repo-url "$(url)") \
 		$(foreach repofile,$(REPO_LIST), --repo-file "$(repofile)") \

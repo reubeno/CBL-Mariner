@@ -31,7 +31,9 @@ endif
 # List of go utilities in tools/ directory
 go_tool_list = \
 	boilerplate \
+	cachectl \
 	depsearch \
+	downloader \
 	grapher \
 	graphpkgfetcher \
 	graphanalytics \

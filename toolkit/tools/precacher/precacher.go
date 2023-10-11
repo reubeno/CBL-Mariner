@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/imagegen/installutils"
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/artifactcache"
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/downloadcache"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/exe"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/jsonutils"
@@ -66,6 +68,7 @@ var (
 	repoFiles         = app.Flag("repo-file", "Files containing URLs of the repos to download from.").ExistingFiles()
 	workerTar         = app.Flag("worker-tar", "Full path to worker_chroot.tar.gz").Required().ExistingFile()
 	buildDir          = app.Flag("worker-dir", "Directory to store chroot while running repo query.").Required().String()
+	cacheDir          = app.Flag("cache", "Path to artifact cache.").String()
 
 	concurrentNetOps = app.Flag("concurrent-net-ops", "Number of concurrent network operations to perform.").Default(defaultNetOpsCount).Uint()
 )
@@ -84,6 +87,20 @@ func main() {
 	timestamp.BeginTiming("precacher", *timestampFile)
 	defer timestamp.CompleteTiming()
 
+	// Open the download cache if specified
+	var cache *downloadcache.DownloadCache
+	if *cacheDir != "" {
+		artifactCache, err := artifactcache.Open(*cacheDir)
+		if err != nil {
+			logger.PanicOnError(err)
+		}
+
+		cache, err = downloadcache.Open(artifactCache)
+		if err != nil {
+			logger.PanicOnError(err)
+		}
+	}
+
 	rpmSnapshot, err := rpmSnapshotFromFile(*snapshot)
 	if err != nil {
 		logger.PanicOnError(err)
@@ -101,7 +118,7 @@ func main() {
 		}
 	}
 
-	downloadedPackages, err := downloadMissingPackages(rpmSnapshot, packagesAvailableFromRepos, *outDir, *concurrentNetOps)
+	downloadedPackages, err := downloadMissingPackages(rpmSnapshot, packagesAvailableFromRepos, *outDir, *concurrentNetOps, cache)
 	if err != nil {
 		logger.PanicOnError(err)
 	}
@@ -325,7 +342,7 @@ func getPackageRepoUrlsFromRepoFiles() (packageURLs []string, err error) {
 // outDir. It will return a list of the packages that were downloaded. It will use concurrentNetOps to limit the number of
 // concurrent network operations used to download the missing packages. It will also monitor the results and print periodic
 // progress updates to the console.
-func downloadMissingPackages(rpmSnapshot *repocloner.RepoContents, packagesAvailableFromRepos map[string]string, outDir string, concurrentNetOps uint) (downloadedPackages []string, err error) {
+func downloadMissingPackages(rpmSnapshot *repocloner.RepoContents, packagesAvailableFromRepos map[string]string, outDir string, concurrentNetOps uint, cache *downloadcache.DownloadCache) (downloadedPackages []string, err error) {
 	timestamp.StartEvent("download missing packages", nil)
 	defer timestamp.StopEvent(nil)
 
@@ -342,7 +359,7 @@ func downloadMissingPackages(rpmSnapshot *repocloner.RepoContents, packagesAvail
 	// Each worker is responsible for removing itself from the wait group once done.
 	for _, pkg := range rpmSnapshot.Repo {
 		wg.Add(1)
-		go precachePackage(pkg, packagesAvailableFromRepos, outDir, wg, results, netOpsSemaphore)
+		go precachePackage(pkg, packagesAvailableFromRepos, outDir, wg, results, netOpsSemaphore, cache)
 	}
 
 	// Wait for all the workers to finish and signal the main thread when we are done
@@ -414,7 +431,7 @@ func monitorProgress(total int, results chan downloadResult, doneChannel chan st
 // The caller is expected to have added to the provided wait group, while this function is
 // responsible for removing itself from the wait group. As much processing as possible is done before acquiring the
 // network operations semaphore to minimize the time spent holding it.
-func precachePackage(pkg *repocloner.RepoPackage, packagesAvailableFromRepos map[string]string, outDir string, wg *sync.WaitGroup, results chan<- downloadResult, netOpsSemaphore chan struct{}) {
+func precachePackage(pkg *repocloner.RepoPackage, packagesAvailableFromRepos map[string]string, outDir string, wg *sync.WaitGroup, results chan<- downloadResult, netOpsSemaphore chan struct{}, cache *downloadcache.DownloadCache) {
 	const (
 		// With 5 attempts, initial delay of 1 second, and a backoff factor of 2.0 the total time spent retrying will be
 		// ~30 seconds.
@@ -464,9 +481,9 @@ func precachePackage(pkg *repocloner.RepoPackage, packagesAvailableFromRepos map
 
 	logger.Log.Debugf("Pre-caching '%s' from '%s'", fileName, url)
 	_, err = retry.RunWithExpBackoff(func() error {
-		err := network.DownloadFile(url, fullFilePath, nil, nil)
+		err := network.CacheAwareDownloadFile(url, fullFilePath, cache, nil, nil)
 		if err != nil {
-			logger.Log.Warnf("Attempt to download (%s) failed. Error: %s", url, err)
+			logger.Log.Warnf("Attempt to precache (%s) failed. Error: %s", url, err)
 		}
 		return err
 	}, downloadRetryAttempts, downloadRetryDuration, failureBackoffBase, noCancel)

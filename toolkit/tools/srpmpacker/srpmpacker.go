@@ -17,8 +17,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/artifactcache"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/buildpipeline"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/directory"
+	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/downloadcache"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/exe"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/file"
 	"github.com/microsoft/CBL-Mariner/toolkit/tools/internal/jsonutils"
@@ -77,6 +79,7 @@ type sourceRetrievalConfiguration struct {
 	sourceURL      string
 	caCerts        *x509.CertPool
 	tlsCerts       []tls.Certificate
+	cache          *downloadcache.DownloadCache
 
 	signatureHandling signatureHandlingType
 	signatureLookup   map[string]string
@@ -108,6 +111,7 @@ var (
 	timestampFile = app.Flag("timestamp-file", "File that stores timestamps for this program.").String()
 
 	buildDir     = app.Flag("build-dir", "Directory to store temporary files while building.").Default(defaultBuildDir).String()
+	cacheDir     = app.Flag("cache", "Path to artifact cache.").String()
 	distTag      = app.Flag("dist-tag", "The distribution tag SRPMs will be built with.").Required().String()
 	packListFile = app.Flag("pack-list", "Path to a list of SPECs to pack. If empty will pack all SPECs.").ExistingFile()
 	runCheck     = app.Flag("run-check", "Whether or not to run the spec file's check section during package build.").Bool()
@@ -181,6 +185,19 @@ func main() {
 		}
 
 		templateSrcConfig.tlsCerts = append(templateSrcConfig.tlsCerts, cert)
+	}
+
+	// Open the download cache if specified
+	if *cacheDir != "" {
+		artifactCache, err := artifactcache.Open(*cacheDir)
+		if err != nil {
+			logger.PanicOnError(err)
+		}
+
+		templateSrcConfig.cache, err = downloadcache.Open(artifactCache)
+		if err != nil {
+			logger.PanicOnError(err)
+		}
 	}
 
 	timestamp.StopEvent(nil)
@@ -943,7 +960,7 @@ func hydrateFromRemoteSource(fileHydrationState map[string]bool, newSourceDir st
 
 		cancelled := false
 		cancelled, err = retry.RunWithExpBackoff(func() error {
-			err := network.DownloadFile(url, destinationFile, srcConfig.caCerts, srcConfig.tlsCerts)
+			err := network.CacheAwareDownloadFile(url, destinationFile, srcConfig.cache, srcConfig.caCerts, srcConfig.tlsCerts)
 			if err != nil {
 				logger.Log.Warnf("Failed to download (%s). Error: %s", url, err)
 			}

@@ -87,6 +87,7 @@ BUILD_DIR        ?= $(PROJECT_ROOT)/build
 OUT_DIR          ?= $(PROJECT_ROOT)/out
 SPECS_DIR        ?= $(PROJECT_ROOT)/SPECS
 CCACHE_DIR       ?= $(PROJECT_ROOT)/ccache
+ARTIFACT_CACHE_DIR ?= $(PROJECT_ROOT)/artifact_cache
 
 # Sub-folder defines
 LOGS_DIR           ?= $(BUILD_DIR)/logs

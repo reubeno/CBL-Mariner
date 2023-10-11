@@ -1,0 +1,6 @@
+------------------------------------------------
+Welcome to the Azure Linux Toolkit devcontainer.
+
+For help run: [1;34msudo make help[0m
+------------------------------------------------
+
