@@ -1,0 +1,110 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+name: Spec Build
+
+on:
+  push:
+    branches: [main, dev, 1.0*, 2.0*, 3.0*, fasttrack/*]
+  pull_request:
+    branches: [main, dev, 1.0*, 2.0*, 3.0*, fasttrack/*]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Spec Build
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the branch of our repo that triggered this action
+      - name: Workflow trigger checkout
+        uses: actions/checkout@v4
+
+      # For consistency, we use the same major/minor version of Python that Azure Linux ships
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+
+      - name: Install Python dependencies for tools
+        run: python3 -m pip install -r toolkit/scripts/requirements.txt
+
+      - name: Get base commit for PRs
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          echo "base_sha=$(git rev-parse origin/${{ github.base_ref }})" >> $GITHUB_ENV
+          echo "Merging ${{ github.sha }} into ${{ github.base_ref }}"
+
+      - name: Get base commit for Pushes
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          git fetch origin ${{ github.event.before }}
+          echo "base_sha=${{ github.event.before }}" >> $GITHUB_ENV
+          echo "Merging ${{ github.sha }} into ${{ github.event.before }}"
+
+      - name: Infer changed specs
+        run: |
+          echo "Files changed: '$(git diff-tree --no-commit-id --name-only -r ${{ env.base_sha }} ${{ github.sha }})'"
+          changed_specs=$(git diff-tree --diff-filter=d  --no-commit-id --name-only -r ${{ env.base_sha }} ${{ github.sha }} | { grep "SPECS.*/.*\.spec$" | sed -e "s|.*/||" -e s"/\.spec//" || test $? = 1; })
+          echo "Specs to build: '${changed_specs}'"
+          echo "updated-specs=$(echo ${changed_specs})" >> $GITHUB_ENV
+
+      - name: Build modified specs
+        run: |
+          # Setup the toolchain using the LKG daily build, and then build.
+          sudo make -C toolkit build-packages SRPM_PACK_LIST='${{ env.updated-specs }}' REBUILD_TOOLS=y DAILY_BUILD_ID=lkg -j30
+
+      - name: Upload built RPMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms
+          path: out/RPMS
+
+  install:
+    name: RPM install
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/azurelinux/base/core:3.0
+      env:
+        # Reference: https://github.com/Azure/azure-cli/issues/29835
+        GNUPGHOME: /root/.gnupg
+    needs: build
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          tdnf install -y ca-certificates jq tar wget
+
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Find daily repo
+        run: |
+          DAILY_BUILD_ID=$(toolkit/scripts/get_lkg_id.sh /tmp)
+          echo "DAILY_BUILD_ID=${DAILY_BUILD_ID}" >>$GITHUB_ENV
+          echo "BUILD_ARCH=x86-64" >>$GITHUB_ENV
+
+      - name: Download built RPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms
+          path: RPMS
+
+      - name: Inventory downloaded RPMs
+        run: |
+          set -euxo pipefail
+          ls -l -R RPMS
+          find RPMS -type f -name "*.rpm" ! -name "*.src.rpm" ! -name "*debuginfo*" >rpms.txt
+
+      - name: Update container using daily repo
+        run: |
+          set -euxo pipefail
+          rm -f /etc/yum.repos.d/*
+          daily_build_repo_name=daily-repo-${DAILY_BUILD_ID}-${BUILD_ARCH}
+          sed -e "s|{{.DAILY_REPO_NAME}}|${daily_build_repo_name}|g" toolkit/resources/manifests/package/daily_build_repo.repo.template >/etc/yum.repos.d/daily.repo
+
+          tdnf update -y
+        
+      - name: Install RPMs
+        run: tdnf install -y $(cat rpms.txt)

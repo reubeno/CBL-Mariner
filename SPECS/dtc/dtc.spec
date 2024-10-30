@@ -1,4 +1,4 @@
-Summary:        Device Tree Compiler
+Summary:        Device Tree Compilerx
 Name:           dtc
 Version:        1.7.0
 Release:        1%{?dist}
