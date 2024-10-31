@@ -1,7 +1,7 @@
-Summary:        Device Tree Compilerx
+Summary:        Device Tree Compiler (updated)
 Name:           dtc
 Version:        1.7.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 License:        BSD OR GPLv2+
 Vendor:         Microsoft Corporation
 Distribution:   Azure Linux

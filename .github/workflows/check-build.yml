@@ -5,55 +5,107 @@ name: Spec Build
 
 on:
   push:
-    branches: [main, dev, 1.0*, 2.0*, 3.0*, fasttrack/*]
+    branches: [3.0, 3.0-dev, fasttrack/3.0]
   pull_request:
-    branches: [main, dev, 1.0*, 2.0*, 3.0*, fasttrack/*]
-  workflow_dispatch:
+    branches: [3.0, 3.0-dev, fasttrack/3.0]
+
+env:
+  # For consistency, we use the same major/minor version of Python that Azure Linux ships
+  PYTHON_VERSION: "3.12"
 
 jobs:
-  build:
-    name: Spec Build
+  detect-changes:
+    name: 'Detect spec changes'
     runs-on: ubuntu-latest
 
+    outputs:
+      updated_specs: ${{ steps.export.outputs.UPDATED_SPECS }}
+      target_ref: ${{ steps.export.outputs.TARGET_REF }}
+      azl_extra_make_args: ${{ steps.export.outputs.AZL_EXTRA_MAKE_ARGS }}
+
     steps:
-      # Checkout the branch of our repo that triggered this action
-      - name: Workflow trigger checkout
+      - name: Checkout sources
         uses: actions/checkout@v4
-
-      # For consistency, we use the same major/minor version of Python that Azure Linux ships
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.12
-
-      - name: Install Python dependencies for tools
-        run: python3 -m pip install -r toolkit/scripts/requirements.txt
 
       - name: Get base commit for PRs
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           git fetch origin ${{ github.base_ref }}
-          echo "base_sha=$(git rev-parse origin/${{ github.base_ref }})" >> $GITHUB_ENV
+          echo "base_sha=$(git rev-parse origin/${{ github.base_ref }})" >>$GITHUB_ENV
+          echo "target_ref=${{ github.base_ref }}" >>$GITHUB_ENV
           echo "Merging ${{ github.sha }} into ${{ github.base_ref }}"
 
       - name: Get base commit for Pushes
         if: ${{ github.event_name == 'push' }}
         run: |
           git fetch origin ${{ github.event.before }}
-          echo "base_sha=${{ github.event.before }}" >> $GITHUB_ENV
+          echo "base_sha=${{ github.event.before }}" >>$GITHUB_ENV
+          echo "target_ref=${{ github.ref }}" >>$GITHUB_ENV
           echo "Merging ${{ github.sha }} into ${{ github.event.before }}"
+
+      - name: Compute tooling args
+        run: |
+          if [[ "${{ env.target_ref }}" == "3.0-dev" ]]; then
+            echo 'azl_extra_make_args=DAILY_BUILD_ID=lkg' >>$GITHUB_ENV
+          else
+            echo 'azl_extra_make_args=' >>$GITHUB_ENV
+          fi
 
       - name: Infer changed specs
         run: |
           echo "Files changed: '$(git diff-tree --no-commit-id --name-only -r ${{ env.base_sha }} ${{ github.sha }})'"
-          changed_specs=$(git diff-tree --diff-filter=d  --no-commit-id --name-only -r ${{ env.base_sha }} ${{ github.sha }} | { grep "SPECS.*/.*\.spec$" | sed -e "s|.*/||" -e s"/\.spec//" || test $? = 1; })
-          echo "Specs to build: '${changed_specs}'"
-          echo "updated-specs=$(echo ${changed_specs})" >> $GITHUB_ENV
+          updated_specs=$(git diff-tree --diff-filter=d  --no-commit-id --name-only -r ${{ env.base_sha }} ${{ github.sha }} | { grep "SPECS.*/.*\.spec$" | sed -e "s|.*/||" -e s"/\.spec//" || test $? = 1; })
+          echo "Specs updated: '${updated_specs}'"
+          echo "updated_specs=$(echo ${updated_specs})" >>$GITHUB_ENV
+
+      - name: Export outputs
+        id: export
+        run: |
+          echo "UPDATED_SPECS=${{ env.updated_specs }}" >>$GITHUB_OUTPUT
+          echo "TARGET_REF=${{ env.target_ref }}" >>$GITHUB_OUTPUT
+          echo "AZL_EXTRA_MAKE_ARGS=${{ env.azl_extra_make_args }}" >>$GITHUB_OUTPUT
+
+  build:
+    name: 'Build RPMS'
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    env:
+      updated_specs: ${{ needs.detect-changes.outputs.updated_specs }}
+      azl_extra_make_args: ${{ needs.detect-changes.outputs.azl_extra_make_args }}
+
+    outputs:
+      daily_build_id: ${{ steps.find-daily-repo.outputs.DAILY_BUILD_ID }}
+      daily_build_arch: ${{ steps.find-daily-repo.outputs.DAILY_BUILD_ARCH }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      # For consistency, we use the same major/minor version of Python that Azure Linux ships
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies for tools
+        run: python3 -m pip install -r toolkit/scripts/requirements.txt
+
+      - name: Find daily repo
+        id: find-daily-repo
+        run: |
+          DAILY_BUILD_ID=$(toolkit/scripts/get_lkg_id.sh /tmp)
+          echo "DAILY_BUILD_ID=${DAILY_BUILD_ID}" >>$GITHUB_OUTPUT
+          echo "DAILY_BUILD_ARCH=x86-64" >>$GITHUB_OUTPUT
 
       - name: Build modified specs
+        id: build-specs
         run: |
-          # Setup the toolchain using the LKG daily build, and then build.
-          sudo make -C toolkit build-packages SRPM_PACK_LIST='${{ env.updated-specs }}' REBUILD_TOOLS=y DAILY_BUILD_ID=lkg -j30
+          sudo make -C toolkit \
+            build-packages \
+            $azl_extra_make_args \
+            -j30 \
+            REBUILD_TOOLS=y \
+            SRPM_PACK_LIST='${{ env.updated_specs }}'
 
       - name: Upload built RPMs
         uses: actions/upload-artifact@v4
@@ -61,15 +113,281 @@ jobs:
           name: rpms
           path: out/RPMS
 
+      - name: Upload build logs
+        id: upload-build-logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_attempt }}
+          path: build/logs
+
+      - name: Publish result
+        if: always()
+        run: |
+          if [[ ${{ steps.build-specs.outcome }} == 'success' ]]; then
+            echo "✅ Build succeeded" >>${GITHUB_STEP_SUMMARY}
+          else
+            echo "❌ Build failed" >>${GITHUB_STEP_SUMMARY}
+          fi
+
+      - name: Advertise build logs
+        if: always() && steps.upload-build-logs.outcome == 'success'
+        run: |
+          echo "_Build logs available [for download](${{ steps.upload-build-logs.outputs.artifact-url }})_" >>${GITHUB_STEP_SUMMARY}
+
+  test:
+    name: 'Run component tests (ptests)'
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    env:
+      updated_specs: ${{ needs.detect-changes.outputs.updated_specs }}
+      azl_extra_make_args: ${{ needs.detect-changes.outputs.azl_extra_make_args }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies for tools
+        run: python3 -m pip install -r toolkit/scripts/requirements.txt
+
+      - name: Test modified specs
+        run: |
+          set -euxo pipefail
+
+          sudo make -C toolkit \
+            build-packages \
+            $azl_extra_make_args \
+            -j30 \
+            REBUILD_TOOLS=y \
+            SRPM_PACK_LIST='${{ env.updated_specs }}' TEST_RUN_LIST='${{ env.updated_specs }}' \
+            RUN_CHECK=y
+
+          # Make sure logs are world-readable.
+          sudo chown -R $USER:$USER build/logs
+
+          # Inventory logs.
+          ls -l build/logs/pkggen/rpmbuilding
+
+          # Look to see what failed.
+          shopt -s nullglob
+          declare -a error_logs=(build/logs/pkggen/rpmbuilding/*FAILED*)
+          error_count=${#error_logs[@]}
+
+          if [[ ${error_count} != 0 ]]; then
+            echo "# Test errors" >>${GITHUB_STEP_SUMMARY}
+            for log in "${error_logs[@]}"; do
+              echo "* Failure log detected: \`${log}\`" >>${GITHUB_STEP_SUMMARY}
+            done
+            exit 1
+          fi
+
+      - name: Upload logs
+        id: upload-test-logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ github.run_attempt }}
+          path: build/logs
+
+      - name: Post results
+        if: always() && steps.upload-test-logs.outcome == 'success'
+        run: |
+          echo "_Test logs available [for download](${{ steps.upload-test-logs.outputs.artifact-url }})_" >>${GITHUB_STEP_SUMMARY}
+
+  analyze:
+    name: 'Analyze RPMs'
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    defaults:
+      run:
+        shell: bash
+    needs: [detect-changes, build]
+    env:
+      target_ref: ${{ needs.detect-changes.outputs.target_ref }}
+      daily_build_id: ${{ needs.build.outputs.daily_build_id }}
+      daily_build_arch: ${{ needs.build.outputs.daily_build_arch }}
+
+    steps:
+      - name: Install prerequisites
+        run: |
+          dnf install -y cpio createrepo_c dnf-plugins-core libabigail
+      
+      - name: Download built RPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms
+          path: RPMS
+
+      - name: Inventory downloaded RPMs
+        run: |
+          set -euxo pipefail
+          ls -l -R RPMS
+          find RPMS -type f -name "*.rpm" ! -name "*.src.rpm" ! -name "*debuginfo*" >rpms.txt
+
+      - name: Create local repo
+        run: |
+          set -euxo pipefail
+          mkdir -p localrepo
+          for rpm_path in $(find RPMS -type f -name "*.rpm"); do cp ${rpm_path} localrepo/; done
+          createrepo_c localrepo
+
+      - name: Download previous versions of RPMs from PMC
+        run: |
+          set -euxo pipefail
+          
+          # Select upstream repo based on target_ref
+          if [[ "${target_ref}" == "3.0-dev" ]]; then
+            # TODO: Consider whether, for 3.0-dev, we should use the daily repo.
+            # base_repo="https://mariner3dailydevrepo.blob.core.windows.net/daily-repo-${daily_build_id}-${daily_build_arch}"
+            # debuginfo_repo="???"
+            base_repo="https://packages.microsoft.com/azurelinux/\$releasever/prod/base/\$basearch"
+            debuginfo_repo="https://packages.microsoft.com/azurelinux/\$releasever/prod/base/debuginfo/\$basearch"
+          else
+            base_repo="https://packages.microsoft.com/azurelinux/\$releasever/prod/base/\$basearch"
+            debuginfo_repo="https://packages.microsoft.com/azurelinux/\$releasever/prod/base/debuginfo/\$basearch"
+          fi
+
+          # Get names of packages.
+          dnf --disablerepo='*' --repofrompath=localrepo,file://$(pwd)/localrepo \
+            repoquery \
+            --quiet --latest-limit=1 \
+            --qf '%{name}' | grep -v -- "-debuginfo" >package-names.txt
+
+          # Download packages.
+          mkdir -p upstream
+          dnf --disablerepo='*' --repofrompath=upstream,${base_repo} \
+            download \
+            --releasever=3.0 \
+            --destdir=upstream \
+            $(cat package-names.txt)
+
+          # Attempt to download debuginfo packages (if present)
+          # Skip what we can't find.
+          dnf --disablerepo='*' --repofrompath=upstream,${debuginfo_repo} \
+            download \
+            --releasever=3.0 \
+            --destdir=upstream \
+            --skip-broken \
+            $(cat package-names.txt | sed -e 's/$/-debuginfo/')
+
+          # Generate repo metadata.
+          createrepo_c upstream
+
+          # Find the upstream packages we downloaded.
+          dnf --disablerepo='*' --repofrompath=localrepo,file://$(pwd)/localrepo \
+            repoquery \
+            --quiet --latest-limit=1 \
+            --qf '%{name}' >upstream-package-names.txt
+
+          # Show what we found.
+          ls -l upstream
+
+      - name: Analyze package diff
+        run: |
+          set -euxo pipefail
+
+          function find_rpm_path() {
+            local package_name=$1
+            local repo_path=$2
+
+            local package_uri=$(dnf --disablerepo='*' --repofrompath=local,file://${repo_path} repoquery -q ${package_name} --location | head -n 1)
+            local package_path=${package_uri#file://}
+
+            echo ${package_path}
+          }
+
+          result=0
+          for package_name in $(cat upstream-package-names.txt | grep -v -- "-debuginfo" | grep -v -- "-devel"); do
+            echo "Comparing ${package_name}"
+
+            # Find packages.
+            built_rpm_path=$(find_rpm_path ${package_name} $(pwd)/localrepo)
+            upstream_rpm_path=$(find_rpm_path ${package_name} $(pwd)/upstream)
+            built_debuginfo_path=$(find_rpm_path ${package_name}-debuginfo $(pwd)/localrepo)
+            upstream_debuginfo_path=$(find_rpm_path ${package_name}-debuginfo $(pwd)/upstream)
+
+            # Summarize
+            echo "--------------------------------------"
+            echo "Built RPM: ${built_rpm_path}"
+            echo "Upstream RPM: ${upstream_rpm_path}"
+            echo "Built Debuginfo: ${built_debuginfo_path}"
+            echo "Upstream Debuginfo: ${upstream_debuginfo_path}"
+
+            # Make sure we found what we needed.
+            if [[ -z "${built_rpm_path}" ]]; then
+              echo "ERROR: Could not find built RPM: ${built_rpm_path}"
+              exit 1
+            fi
+            if [[ -z "${upstream_rpm_path}" ]]; then
+              echo "ERROR: Could not find upstream RPM: ${upstream_rpm_path}"
+              exit 1
+            fi
+            
+            # Compute args.
+            abipkgdiff_args=()
+            if [[ -n "${upstream_debuginfo_path}" ]]; then
+              abipkgdiff_args+=(--d1 "${upstream_debuginfo_path}")
+            fi
+            if [[ -n "${built_debuginfo_path}" ]]; then
+              abipkgdiff_args+=(--d2 "${built_debuginfo_path}")
+            fi
+
+            # Emit summary.
+            echo "## ${package_name}" >>${GITHUB_STEP_SUMMARY}
+            echo "* Upstream RPM: \`$(basename ${upstream_rpm_path})\`" >>${GITHUB_STEP_SUMMARY}
+            echo "* Built RPM: \`$(basename ${built_rpm_path})\`" >>${GITHUB_STEP_SUMMARY}
+
+            echo "### Info" >>${GITHUB_STEP_SUMMARY}
+            echo '```' >>${GITHUB_STEP_SUMMARY}
+            rpm -qp --info ${built_rpm_path} >>${GITHUB_STEP_SUMMARY}
+            echo '```' >>${GITHUB_STEP_SUMMARY}
+
+            echo "### Files" >>${GITHUB_STEP_SUMMARY}
+            echo '```' >>${GITHUB_STEP_SUMMARY}
+            rpm -qp --list ${built_rpm_path} >>${GITHUB_STEP_SUMMARY}
+            echo '```' >>${GITHUB_STEP_SUMMARY}
+
+            # Diff!
+            abipkgdiff \
+              --verbose \
+              ${upstream_rpm_path} \
+              ${built_rpm_path} \
+              ${abipkgdiff_args[@]} >diff-output.txt 2>&1 || result=$?
+
+            # Emit diff.
+            echo "### Diff" >>${GITHUB_STEP_SUMMARY}
+            echo '```' >>${GITHUB_STEP_SUMMARY}
+            cat diff-output.txt >>${GITHUB_STEP_SUMMARY}
+            echo '```' >>${GITHUB_STEP_SUMMARY}
+            echo "" >>${GITHUB_STEP_SUMMARY}
+          done
+
+          exit $result
+
   install:
-    name: RPM install
+    name: 'Test installing RPM'
+    needs: [build, detect-changes]
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/azurelinux/base/core:3.0
       env:
-        # Reference: https://github.com/Azure/azure-cli/issues/29835
+        daily_build_id: ${{ needs.build.outputs.daily_build_id }}
+        daily_build_arch: ${{ needs.build.outputs.daily_build_arch }}
+
+          # Reference: https://github.com/Azure/azure-cli/issues/29835
         GNUPGHOME: /root/.gnupg
-    needs: build
+
+    defaults:
+      run:
+        shell: bash
+    env:
+      target_ref: ${{ needs.detect-changes.outputs.target_ref }}
 
     steps:
       - name: Install prerequisites
@@ -79,11 +397,6 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Find daily repo
-        run: |
-          DAILY_BUILD_ID=$(toolkit/scripts/get_lkg_id.sh /tmp)
-          echo "DAILY_BUILD_ID=${DAILY_BUILD_ID}" >>$GITHUB_ENV
-          echo "BUILD_ARCH=x86-64" >>$GITHUB_ENV
 
       - name: Download built RPMs
         uses: actions/download-artifact@v4
@@ -97,14 +410,16 @@ jobs:
           ls -l -R RPMS
           find RPMS -type f -name "*.rpm" ! -name "*.src.rpm" ! -name "*debuginfo*" >rpms.txt
 
-      - name: Update container using daily repo
+      - name: Switch container OS to use daily repo
+        if: ${{ env.target_ref == '3.0-dev' }}
         run: |
           set -euxo pipefail
           rm -f /etc/yum.repos.d/*
-          daily_build_repo_name=daily-repo-${DAILY_BUILD_ID}-${BUILD_ARCH}
+          daily_build_repo_name=daily-repo-${daily_build_id}-${daily_build_arch}
           sed -e "s|{{.DAILY_REPO_NAME}}|${daily_build_repo_name}|g" toolkit/resources/manifests/package/daily_build_repo.repo.template >/etc/yum.repos.d/daily.repo
 
-          tdnf update -y
+      - name: Update container OS
+        run: tdnf update -y
         
       - name: Install RPMs
         run: tdnf install -y $(cat rpms.txt)
