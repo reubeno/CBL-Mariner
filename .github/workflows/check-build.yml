@@ -8,8 +8,10 @@
 # have changed in a given git commit, build the RPMs for those specs, and run ptests
 # for those.
 #
-# Known limitations:
+# Known limitations/concerns:
 #
+# * We hard-code -j30 in make invocations; should we?
+# 
 # * We build + test the packages in an Ubuntu VM runner. This is easiest in a GitHub
 #   action, since it's the only Linux OS supported running in the VM; in time,
 #   it may be worthwhile looking into running the package build itself in an
@@ -245,6 +247,15 @@ jobs:
             for log in "${error_logs[@]}"; do
               echo "* Failure log detected: \`${log}\`" >>${GITHUB_STEP_SUMMARY}
             done
+
+            echo "# Test logs" >>${GITHUB_STEP_SUMMARY}
+            for log in "${error_logs[@]}"; do
+              echo "## ${log}" >>${GITHUB_STEP_SUMMARY}
+              echo '```' >>${GITHUB_STEP_SUMMARY}
+              cat "${log}" >>${GITHUB_STEP_SUMMARY}
+              echo '```' >>${GITHUB_STEP_SUMMARY}
+            done
+            
             exit 1
           fi
 
@@ -300,6 +311,7 @@ jobs:
           set -euxo pipefail
           ls -l -R RPMS
           find RPMS -type f -name "*.rpm" ! -name "*.src.rpm" ! -name "*debuginfo*" >rpms.txt
+          cat rpms.txt
 
       - name: Switch container OS to use daily repo
         if: ${{ env.target_ref == '3.0-dev' }}
@@ -317,4 +329,4 @@ jobs:
         run: tdnf update -y
         
       - name: Install RPMs
-        run: tdnf install -y $(cat rpms.txt)
+        run: tdnf install -y --rpmverbosity=debug $(cat rpms.txt)
