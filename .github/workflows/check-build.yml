@@ -251,8 +251,9 @@ jobs:
             echo "# Test logs" >>${GITHUB_STEP_SUMMARY}
             for log in "${error_logs[@]}"; do
               echo "## ${log}" >>${GITHUB_STEP_SUMMARY}
+              echo "Last 50 lines of log:" >>${GITHUB_STEP_SUMMARY}
               echo '```' >>${GITHUB_STEP_SUMMARY}
-              cat "${log}" >>${GITHUB_STEP_SUMMARY}
+              tail -n 50 "${log}" >>${GITHUB_STEP_SUMMARY}
               echo '```' >>${GITHUB_STEP_SUMMARY}
             done
             
@@ -329,4 +330,20 @@ jobs:
         run: tdnf update -y
         
       - name: Install RPMs
-        run: tdnf install -y --rpmverbosity=debug $(cat rpms.txt)
+        run: |
+          set -euxo pipefail
+
+          # First try installing with tdnf.
+          result=0
+          tdnf install -y --rpmverbosity=debug $(cat rpms.txt) || result=$?
+
+          # If we fail, try again with dnf instead and hope for better error
+          # messages.
+          if [[ $result != 0 ]]; then
+            echo "Failed to install RPMs with tdnf; trying with dnf."
+            tdnf install -y dnf dnf-plugins-core
+            dnf install -y --verbose --debuglevel 10 --rpmverbosity=debug $(cat rpms.txt) || true
+          fi
+
+          # Pass back the exit code from tdnf.
+          exit $result
