@@ -243,20 +243,8 @@ jobs:
           error_count=${#error_logs[@]}
 
           if [[ ${error_count} != 0 ]]; then
-            echo "# Test errors" >>${GITHUB_STEP_SUMMARY}
-            for log in "${error_logs[@]}"; do
-              echo "* Failure log detected: \`${log}\`" >>${GITHUB_STEP_SUMMARY}
-            done
-
-            echo "# Test logs" >>${GITHUB_STEP_SUMMARY}
-            for log in "${error_logs[@]}"; do
-              echo "## ${log}" >>${GITHUB_STEP_SUMMARY}
-              echo "Last 50 lines of log:" >>${GITHUB_STEP_SUMMARY}
-              echo '```' >>${GITHUB_STEP_SUMMARY}
-              tail -n 50 "${log}" >>${GITHUB_STEP_SUMMARY}
-              echo '```' >>${GITHUB_STEP_SUMMARY}
-            done
-            
+            # Invoke our helper script to process the check logs and generate markdown output.
+            ./toolkit/scripts/process_check_logs.py --log-dir ./build/logs/pkggen/rpmbuilding --output-md ${GITHUB_STEP_SUMMARY}
             exit 1
           fi
 
