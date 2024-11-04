@@ -16,6 +16,8 @@ validators==0.20.0
     # via -r requirements.in
 junit_xml==1.9
     # for process_check_logs.py
+python-dateutil==2.9.0
+    # for process_check_logs.py
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools
