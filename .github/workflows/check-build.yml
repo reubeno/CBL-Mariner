@@ -230,7 +230,7 @@ jobs:
             args+=(-s "${spec}")
           done
 
-          ./toolkit/scripts/run_ptests.py --verbose --output-format=markdown ${args[@]} >${GITHUB_STEP_SUMMARY}
+          ./toolkit/scripts/run_ptests.py --verbose --markdown-report=${GITHUB_STEP_SUMMARY} ${args[@]}
 
       - name: Upload logs
         id: upload-test-logs

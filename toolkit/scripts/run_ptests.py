@@ -54,6 +54,9 @@ else:
 
     toolkit_log_level = "info" if args.verbose else "warn"
 
+    # N.B. We do *not* use TEST_RUN_LIST or TEST_RERUN_LIST, because those
+    # fail in undesirable ways on specs with no %check sections. We instead
+    # just set RUN_CHECK=y and figure out after the fact what happened.
     cmd = [
         "sudo",
         "make",
@@ -64,8 +67,6 @@ else:
         f"LOG_LEVEL={toolkit_log_level}",
         f"SRPM_PACK_LIST={' '.join(args.specs)}",
         f"PACKAGE_REBUILD_LIST={' '.join(args.specs)}",
-        f"TEST_RUN_LIST={' '.join(args.specs)}",
-        f"TEST_RERUN_LIST={' '.join(args.specs)}",
         "RUN_CHECK=y",
         "DAILY_BUILD_ID=lkg"
     ]
@@ -196,6 +197,7 @@ if args.markdown_report:
 # Report results.
 #
 
+# TODO: Figure out which components didn't *have* any checks to run.
 for srpm_name, srpm_results in test_results.items():
     result = srpm_results["Result"]
     expected_failure = srpm_results["ExpectedFailure"]
