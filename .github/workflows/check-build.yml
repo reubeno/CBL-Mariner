@@ -228,34 +228,12 @@ jobs:
         run: |
           set -euxo pipefail
 
-          sudo make -C toolkit \
-            build-packages \
-            $azl_extra_make_args \
-            -j$(nproc) \
-            REBUILD_TOOLS=y \
-            SRPM_PACK_LIST='${{ env.updated_specs }}' TEST_RUN_LIST='${{ env.updated_specs }}' \
-            RUN_CHECK=y
+          declare -a args=()
+          for spec in ${{ env.updated_specs }}; do
+            args+=(-s "${spec}")
+          done
 
-          # Make sure logs are world-readable.
-          sudo chown -R $USER:$USER build/logs
-
-          # Inventory logs.
-          ls -l build/logs/pkggen/rpmbuilding
-
-          # Look to see what failed. When packages build but tests fail, the make invocation
-          # succeeds, but failure logs are left behind. Thankfully there are well-known
-          # "failure" logs specifically emitted for test failures, and we can easily
-          # glob-find them. In the future, we really should update the toolkit to emit
-          # the test results in a machine-readable format so we don't have to scrape this out.
-          shopt -s nullglob
-          declare -a error_logs=(build/logs/pkggen/rpmbuilding/*FAILED*)
-          error_count=${#error_logs[@]}
-
-          if [[ ${error_count} != 0 ]]; then
-            # Invoke our helper script to process the check logs and generate markdown output.
-            ./toolkit/scripts/process_check_logs.py --log-dir ./build/logs/pkggen/rpmbuilding --output-md ${GITHUB_STEP_SUMMARY}
-            exit 1
-          fi
+          ./toolkit/scripts/run_ptests.py --verbose --output-format=markdown ${args[@]} >${GITHUB_STEP_SUMMARY}
 
       - name: Upload logs
         id: upload-test-logs

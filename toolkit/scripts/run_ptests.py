@@ -11,8 +11,6 @@ import subprocess
 import sys
 import time
 
-from process_check_logs import PackageTestAnalyzer, PackageTestBaseline, DefaultLogger, test_suite_to_stdout
-
 logger = logging.getLogger(__name__)
 self_path = os.path.abspath(__file__)
 script_dir_path = os.path.dirname(self_path)
@@ -213,3 +211,7 @@ if args.output_format == "readable":
         print(f"Tests blocked:                {block_count}")
     if skip_count > 0:
         print(f"Tests skipped:                {skip_count}")
+
+if unexpected_fail_count > 0 or block_count > 0:
+    logger.error("One or more tests were failed or blocked; exiting with error.")
+    sys.exit(1)
