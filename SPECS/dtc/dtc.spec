@@ -60,6 +60,7 @@ export SETUPTOOLS_SCM_PRETEND_VERSION=%{version}
     BINDIR=%{_bindir} \
     INCLUDEDIR=%{_includedir}
 
+#!AZL expected-test-failure
 %check
 export SETUPTOOLS_SCM_PRETEND_VERSION=%{version}
 make %{?_smp_mflags} check

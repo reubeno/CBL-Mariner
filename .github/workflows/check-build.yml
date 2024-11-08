@@ -10,8 +10,6 @@
 #
 # Known limitations/concerns:
 #
-# * We hard-code -j30 in make invocations; should we?
-# 
 # * We build + test the packages in an Ubuntu VM runner. This is easiest in a GitHub
 #   action, since it's the only Linux OS supported running in the VM; in time,
 #   it may be worthwhile looking into running the package build itself in an
@@ -25,6 +23,8 @@
 #
 # * This workflow doesn't know which specs' tests are *expected* to pass (i.e., baseline).
 #   We should consider expressing this baseline within this repo.
+#
+# * This workflow doesn't support building or running tests for "EXTENDED" specs.
 #
 
 name: "Spec Build/Test"
@@ -55,6 +55,7 @@ jobs:
 
     outputs:
       updated_specs: ${{ steps.export.outputs.UPDATED_SPECS }}
+      updated_extended_specs: ${{ steps.export.outputs.UPDATED_EXTENDED_SPECS }}
       target_ref: ${{ steps.export.outputs.TARGET_REF }}
       azl_extra_make_args: ${{ steps.export.outputs.AZL_EXTRA_MAKE_ARGS }}
 
@@ -115,23 +116,29 @@ jobs:
 
       - name: Infer changed specs
         run: |
-          updated_specs=$(./toolkit/scripts/detect_changes.py --since ${{ env.base_sha }} --spec-names-only)
+          updated_specs=$(./toolkit/scripts/detect_changes.py --since ${{ env.base_sha }} --spec-names)
+          updated_extended_specs=$(./toolkit/scripts/detect_changes.py --since ${{ env.base_sha }} --extended-spec-names)
           echo "Specs updated: '${updated_specs}'"
+          echo "Extended specs updated: '${updated_specs}'"
           echo "updated_specs=$(echo ${updated_specs})" >>$GITHUB_ENV
+          echo "updated_extended_specs=$(echo ${updated_extended_specs})" >>$GITHUB_ENV
 
       - name: Export outputs
         id: export
         run: |
           echo "UPDATED_SPECS=${{ env.updated_specs }}" >>$GITHUB_OUTPUT
+          echo "UPDATED_EXTENDED_SPECS=${{ env.updated_extended_specs }}" >>$GITHUB_OUTPUT
           echo "TARGET_REF=${{ env.target_ref }}" >>$GITHUB_OUTPUT
           echo "AZL_EXTRA_MAKE_ARGS=${{ env.azl_extra_make_args }}" >>$GITHUB_OUTPUT
 
   build:
     name: 'Build RPMS'
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     needs: [detect-changes]
     env:
       updated_specs: ${{ needs.detect-changes.outputs.updated_specs }}
+      # updated_extended_specs: ${{ needs.detect-changes.outputs.updated_extended_specs }}
       azl_extra_make_args: ${{ needs.detect-changes.outputs.azl_extra_make_args }}
 
     outputs:
@@ -163,7 +170,7 @@ jobs:
           sudo make -C toolkit \
             build-packages \
             $azl_extra_make_args \
-            -j30 \
+            -j$(nproc) \
             REBUILD_TOOLS=y \
             SRPM_PACK_LIST='${{ env.updated_specs }}'
 
@@ -198,9 +205,11 @@ jobs:
   test:
     name: 'Run component tests (ptests)'
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     needs: [detect-changes]
     env:
       updated_specs: ${{ needs.detect-changes.outputs.updated_specs }}
+      # updated_extended_specs: ${{ needs.detect-changes.outputs.updated_extended_specs }}
       azl_extra_make_args: ${{ needs.detect-changes.outputs.azl_extra_make_args }}
 
     steps:
@@ -222,7 +231,7 @@ jobs:
           sudo make -C toolkit \
             build-packages \
             $azl_extra_make_args \
-            -j30 \
+            -j$(nproc) \
             REBUILD_TOOLS=y \
             SRPM_PACK_LIST='${{ env.updated_specs }}' TEST_RUN_LIST='${{ env.updated_specs }}' \
             RUN_CHECK=y
@@ -265,6 +274,7 @@ jobs:
     name: 'Test installing RPM'
     needs: [build, detect-changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       # Use a base Azure Linux 3.0 container.
       image: mcr.microsoft.com/azurelinux/base/core:3.0
@@ -284,7 +294,7 @@ jobs:
     steps:
       - name: Install prerequisites
         run: |
-          tdnf install -y ca-certificates jq tar wget
+          tdnf install -y ca-certificates createrepo_c jq tar wget
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -295,12 +305,17 @@ jobs:
           name: rpms
           path: RPMS
 
-      - name: Inventory downloaded RPMs
+      - name: Prepare downloaded RPMs
         run: |
           set -euxo pipefail
+
+          # Inventory what we downloaded
           ls -l -R RPMS
           find RPMS -type f -name "*.rpm" ! -name "*.src.rpm" ! -name "*debuginfo*" >rpms.txt
           cat rpms.txt
+
+          # Set up a local repo
+          createrepo_c RPMS
 
       - name: Switch container OS to use daily repo
         if: ${{ env.target_ref == '3.0-dev' }}

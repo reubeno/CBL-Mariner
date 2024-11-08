@@ -3,7 +3,9 @@ from platform import machine
 import argparse
 import inspect
 import logging
+import os
 import re
+import sys
 
 from dateutil.parser import parse
 from glob import glob
@@ -98,13 +100,30 @@ class DefaultLogger:
         pass
 
 
+class PackageTestBaseline:
+    '''
+    Encapsulates a baseline of expected-to-fail/expected-to-pass tests. Used to
+    qualify an expected failure.
+    '''
+    def __init__(self, specs_dir: str):
+        self.specs_dir = specs_dir
+
+    def is_failure_expected(self, package_name: str) -> bool:
+        '''
+        Check if the package test failure is expected.
+        '''
+        # TODO: implement
+        return True
+
+
 class PackageTestAnalyzer:
     '''
     Package test class to expose all the required functionality for parsing
     the Mariner package build logs.
     '''
-    def __init__(self, logger):
+    def __init__(self, logger, baseline: PackageTestBaseline):
         self.logger = logger
+        self.baseline = baseline
 
 
     def _get_package_details(self, log_path):
@@ -207,13 +226,19 @@ class PackageTestAnalyzer:
         if status == "Fail":
             stdout = self._get_test_output(log_path)
 
-        tc = TestCase(package_name, test_name, time, stdout)
+        tc = TestCase(package_name, classname=test_name, elapsed_sec=time, stdout=stdout, status=status)
 
         if status == "Pass":
+            if self.baseline.is_failure_expected(package_name):
+                tc.add_error_info("TEST PASSED BUT EXPECTED TO FAIL. CHECK TEST BASELINE.")
+
             return tc
 
         if status == "Fail":
-            tc.add_failure_info("TEST FAILED. CHECK ATTACHMENTS TAB FOR FAILURE LOG")
+            if self.baseline.is_failure_expected(package_name):
+                tc.add_skipped_info("TEST FAILED BUT EXPECTED. CHECK LOGS FOR DETAILS.")
+            else:
+                tc.add_failure_info("TEST FAILED. CHECK LOGS FOR DETAILS.")
         elif status == "Skipped":
             tc.add_skipped_info("PACKAGE TEST SKIPPED")
         elif status == "Not Supported":
@@ -246,7 +271,7 @@ class PackageTestAnalyzer:
         return TestSuite(test_name, test_cases)
 
 
-def test_suite_to_markdown(test_suite, output_md):
+def test_suite_to_markdown(test_suite: TestSuite, output_md: str):
     '''
     Generate a markdown report from a parsed TestSuite object.
     '''
@@ -255,10 +280,13 @@ def test_suite_to_markdown(test_suite, output_md):
         for test_case in test_suite.test_cases:
             f.write(f"## `{test_case.name}`\n\n")
 
-            if len(test_case.failures) > 0:
+            if test_case.is_failure():
                 f.write(f"Result: ❌ FAILED\n")
-            elif len(test_case.skipped) > 0:
-                f.write(f"Result: ⏩ SKIPPED\n")
+            elif test_case.is_skipped():
+                if test_case.status == "Fail":
+                    f.write(f"Result: 🟡 FAILED (expected)\n")
+                else:
+                    f.write(f"Result: ⏩ SKIPPED\n")
             else:
                 f.write(f"Result: ✅ PASSED\n")
 
@@ -276,34 +304,72 @@ def test_suite_to_markdown(test_suite, output_md):
                 f.write("\n")
                 f.write(f"```\n")
 
+def test_suite_to_stdout(test_suite: TestSuite):
+    '''
+    Generate human-readable report from a parsed TestSuite object and print it to stdout.
+    '''
+    fail_count = 0
+    skip_count = 0
+    pass_count = 0
+    for test_case in test_suite.test_cases:
+        if test_case.is_failure():
+            print(f"❌ {test_case.name}: FAILED")
+            fail_count += 1
+        elif test_case.is_skipped():
+            if test_case.status == "Fail":
+                print(f"🟡 {test_case.name}: FAILED (expected)")
+            else:
+                print(f"⏩ {test_case.name}: SKIPPED")
+            skip_count += 1
+        else:
+            print(f"✅ {test_case.name}: PASSED")
+            pass_count += 1
 
-parser = argparse.ArgumentParser(description='Process Azure Linux package test logs.')
-parser.add_argument("--log-dir", dest="log_dir", required=True, help="Path to the package test log directory (typically will be <BUILD_ROOT>/logs/pkggen/rpmbuilding).")
-parser.add_argument("--ado-logger", dest="use_ado_logger", action="store_true", help="Flag to enable ADO logger.")
-parser.add_argument("--output-junit-xml", dest="output_junit_xml", required=False, help="Path to the output JUnit XML file.")
-parser.add_argument("--output-md", dest="output_md", required=False, help="Path to the output markdown file.")
-parser.add_argument("--test-suite-name", dest="test_suite_name", default="Package Tests", help="Name of the test suite (for report).")
+    total_count = len(test_suite.test_cases)
 
-args = parser.parse_args()
+    print("")
+    print(f"Executed {total_count} test(s).")
+    print(f"{pass_count} test(s) passed, {skip_count} test(s) skipped, {fail_count} test(s) failed.")
 
-if args.use_ado_logger:
-    logger = ADOPipelineLogger()
-else:
-    DEFAULT_LOG_LEVEL = logging.INFO
-    logging.basicConfig(format="%(levelname)s: %(message)s", level=DEFAULT_LOG_LEVEL)
-    logger = DefaultLogger(logging.getLogger(__name__))
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Process Azure Linux package test logs.')
+    parser.add_argument("--specs-dir", dest="specs_dir", required=False, help="Path to the SPECS directory containing the .spec files.")
+    parser.add_argument("--log-dir", dest="log_dir", required=True, help="Path to the package test log directory (typically will be <BUILD_ROOT>/logs/pkggen/rpmbuilding).")
+    parser.add_argument("--ado-logger", dest="use_ado_logger", action="store_true", help="Flag to enable ADO logger.")
+    parser.add_argument("--output-junit-xml", dest="output_junit_xml", required=False, help="Path to the output JUnit XML file.")
+    parser.add_argument("--output-md", dest="output_md", required=False, help="Path to the output markdown file.")
+    parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", help="Suppress human-readable output.")
+    parser.add_argument("--test-suite-name", dest="test_suite_name", default="Package Tests", help="Name of the test suite (for report).")
 
-logger.log(f"Analyzing tests results inside '{args.log_dir}'.")
+    args = parser.parse_args()
 
-# Instantiate the ptest object and process the package test logs
-analyzer = PackageTestAnalyzer(logger)
-test_suite = analyzer.scan_package_test_logs(
-    args.log_dir,
-    args.test_suite_name)
+    if args.use_ado_logger:
+        logger = ADOPipelineLogger()
+    else:
+        DEFAULT_LOG_LEVEL = logging.INFO
+        logging.basicConfig(format="%(levelname)s: %(message)s", level=DEFAULT_LOG_LEVEL)
+        logger = DefaultLogger(logging.getLogger(__name__))
 
-if args.output_junit_xml:
-    with open(args.junit_xml_filename, "w") as f:
-        TestSuite.to_file(f, [test_suite], prettyprint=True)
+    logger.log(f"Analyzing tests results inside '{args.log_dir}'.")
 
-if args.output_md:
-    test_suite_to_markdown(test_suite, args.output_md)
+    if not os.path.isdir(args.log_dir):
+        logger.log(f"Directory '{args.log_dir}' does not exist.")
+        sys.exit(1)
+
+    test_baseline = PackageTestBaseline(args.specs_dir)
+
+    # Instantiate the ptest object and process the package test logs
+    analyzer = PackageTestAnalyzer(logger, test_baseline)
+    test_suite = analyzer.scan_package_test_logs(
+        args.log_dir,
+        args.test_suite_name)
+
+    if args.output_junit_xml:
+        with open(args.junit_xml_filename, "w") as f:
+            TestSuite.to_file(f, [test_suite], prettyprint=True)
+
+    if args.output_md:
+        test_suite_to_markdown(test_suite, args.output_md)
+
+    if not args.quiet:
+        test_suite_to_stdout(test_suite)

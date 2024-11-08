@@ -14,11 +14,15 @@ logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser(description="Detect changes in the repository")
 parser.add_argument("--display-compare-ref", dest="display_compare_ref", action="store_true", help="Display the detected comparison ref and exit")
-parser.add_argument("-s", "--since", dest="compare_ref", required=False, help="Identifies the git ref to compare against")
+parser.add_argument("--since", dest="compare_ref", required=False, help="Identifies the git ref to compare against")
 parser.add_argument("-t", "--target-ref", dest="target_ref", default="HEAD", help="Identifies the target git ref with changes")
-parser.add_argument("-n", "--spec-names-only", dest="spec_names_only", action="store_true", help="Only detect changes in spec files and print out their base names")
-parser.add_argument("-u", "--include-untracked", dest="include_untracked", action="store_true", help="Include untracked files in working tree")
+parser.add_argument("-u", "--include-uncommitted", dest="include_uncommitted", action="store_true", help="Include uncommitted files from working tree")
+parser.add_argument("--include-untracked", dest="include_untracked", action="store_true", help="Include untracked files in working tree")
 parser.add_argument("-v", "--verbose", dest="verbose", action="store_true", help="Enable verbose output")
+
+spec_options = parser.add_mutually_exclusive_group()
+spec_options.add_argument("-s", "--spec-names", dest="spec_names_only", action="store_true", help="Only detect changes in SPECS .spec files and print out their base names")
+spec_options.add_argument("-e", "--extended-spec-names", dest="extended_spec_names_only", action="store_true", help="Only detect changes in SPECS-EXTENDED .spec files and print out their base names")
 
 args = parser.parse_args()
 
@@ -104,7 +108,16 @@ if args.display_compare_ref:
 logger.debug(f"comparing against ref: {args.compare_ref}")
 
 # Try to find the files changed since the reference ref.
-result = subprocess.run(["git", "diff-tree", "--no-commit-id", "--name-only", "-r", args.compare_ref, args.target_ref], capture_output=True, check=True)
+if args.include_uncommitted:
+    if args.target_ref != "HEAD":
+        logger.error("cannot include uncommitted files when target ref is not HEAD")
+        sys.exit(1)
+
+    git_cmd = ["git", "diff-index", "--name-only", args.compare_ref]
+else:
+    git_cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", args.compare_ref, args.target_ref]
+
+result = subprocess.run(git_cmd, capture_output=True, check=True)
 changed_files = result.stdout.decode("utf-8").splitlines()
 
 # If requested, look for untracked files.
@@ -117,9 +130,21 @@ if args.include_untracked:
     result = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], capture_output=True, check=True)
     changed_files.extend(result.stdout.decode("utf-8").splitlines())
 
+# Identify any base dir filter.
+if args.spec_names_only:
+    base_dir = "SPECS/"
+elif args.extended_spec_names_only:
+    base_dir = "SPECS-EXTENDED/"
+else:
+    base_dir = None
+
 for changed_file in changed_files:
+    # If a base dir filter is provided, then apply it.
+    if base_dir is not None and not changed_file.startswith(base_dir):
+        continue
+
     # If requested, filter out non-spec files.
-    if args.spec_names_only:
+    if args.spec_names_only or args.extended_spec_names_only:
         if not changed_file.endswith(".spec"):
             continue
 
