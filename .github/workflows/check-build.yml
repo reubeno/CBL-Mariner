@@ -289,39 +289,7 @@ jobs:
           find RPMS -type f -name "*.rpm" ! -name "*.src.rpm" ! -name "*debuginfo*" >rpms.txt
           cat rpms.txt
 
-          # Set up a local repo
-          createrepo_c RPMS
-
-      - name: Switch container OS to use daily repo
-        if: ${{ env.target_ref == '3.0-dev' }}
+      - name: "Test package install/uninstall"
+        # TODO: For now we hard-code .azl3 + use of latest daily repo
         run: |
-          set -euxo pipefail
-          rm -f /etc/yum.repos.d/*
-          daily_build_repo_name=daily-repo-${daily_build_id}-${daily_build_arch}
-
-          # Use the daily repo template in the toolkit to generate the right repo file for us.
-          sed -e "s|{{.DAILY_REPO_NAME}}|${daily_build_repo_name}|g" \
-            toolkit/resources/manifests/package/daily_build_repo.repo.template \
-            >/etc/yum.repos.d/daily.repo
-
-      - name: Update container OS
-        run: tdnf update -y
-        
-      - name: Install RPMs
-        run: |
-          set -euxo pipefail
-
-          # First try installing with tdnf.
-          result=0
-          tdnf install -y --rpmverbosity=debug $(cat rpms.txt) || result=$?
-
-          # If we fail, try again with dnf instead and hope for better error
-          # messages.
-          if [[ $result != 0 ]]; then
-            echo "Failed to install RPMs with tdnf; trying with dnf."
-            tdnf install -y dnf dnf-plugins-core
-            dnf install -y --verbose --debuglevel 10 --rpmverbosity=debug $(cat rpms.txt) || true
-          fi
-
-          # Pass back the exit code from tdnf.
-          exit $result
+          ./toolkit/scripts/test_package_install.sh -p RPMS -s "$(cat rpms.txt)" -y latest -d ".azl3"
