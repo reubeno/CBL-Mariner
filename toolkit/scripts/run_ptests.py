@@ -24,7 +24,7 @@ ptest_logs_dir_path = os.path.join(logs_dir_path, "pkggen", "rpmbuilding")
 parser = argparse.ArgumentParser(description="Run package tests")
 parser.add_argument("-s", "--spec", dest="specs", action="append", help="Names of specs to run tests for")
 parser.add_argument("-v", "--verbose", dest="verbose", action="store_true", help="Enable verbose output")
-parser.add_argument("-O", "--output-format", choices=["readable", "markdown"], default="readable", help="Output format")
+parser.add_argument("--markdown-report", dest="markdown_report", help="Path to output markdown report of test results")
 parser.add_argument("--report-last-results-only", dest="report_last_results_only", action="store_true", help="Report only the last test results without re-running tests")
 
 args = parser.parse_args()
@@ -114,44 +114,63 @@ class ReadableTestReporter:
         print(f"❓ {srpm_name}: {result}")
 
 class MarkdownTestReporter:
+    def __init__(self, report_path: str):
+        self._report_file = open(report_path, "w")
+
+    def close(self):
+        self._report_file.close()
+
     def on_skipped(self, name: str):
         self._test_heading(name)
-        ReadableTestReporter(display_log_paths=False).on_skipped(name)
-        print("")
+        self._write_line(f"⏩ {srpm_name}: SKIPPED")
+        self._write_line("")
 
     def on_blocked(self, name: str):
         self._test_heading(name)
-        ReadableTestReporter(display_log_paths=False).on_blocked(name)
-        print("")
+        self._write_line(f"🚫 {srpm_name}: BLOCKED")
+        self._write_line("")
 
     def on_failed(self, name: str, expected_failure: bool, log_path: str):
         self._test_heading(name)
-        ReadableTestReporter(display_log_paths=False).on_failed(name, expected_failure, log_path)
+
+        if expected_failure:
+            self._write_line(f"🟡 {srpm_name}: FAILED (expected)")
+        else:
+            self._write_line(f"❌ {srpm_name}: FAILED")
 
         LINES_TO_SHOW = 100
 
-        print("")
-        print(f"Last {LINES_TO_SHOW} lines of test output:\n")
+        self._write_line("")
+        self._write_line(f"Last {LINES_TO_SHOW} lines of test output:\n")
 
-        print("```")
+        self._write_line("```")
         with open(log_path, "r") as log_file:
             for line in log_file.readlines()[-LINES_TO_SHOW:]:
-                print(line, end="")
-        print("```")
-        print("")
+                self._report_file.write(line)
+        self._write_line("```")
+        self._write_line("")
 
     def on_succeeded(self, name: str, expected_failure: bool):
         self._test_heading(name)
-        ReadableTestReporter(display_log_paths=False).on_succeeded(name, expected_failure)
-        print("")
+
+        if expected_failure:
+            self._write_line(f"🔴 {srpm_name}: PASSED (unexpected)")
+        else:
+            self._write_line(f"✅ {srpm_name}: PASSED")
+
+        self._write_line("")
 
     def on_unknown_result(self, name):
         self._test_heading(name)
-        ReadableTestReporter(display_log_paths=False).on_unknown_result(name)
-        print("")
+        self._write_line(f"❓ {srpm_name}: {result}")
+        self._write_line("")
 
     def _test_heading(self, name: str):
-        print(f"## `{name}`\n\n")
+        self._write_line(f"## `{name}`\n\n")
+
+    def _write_line(self, line: str):
+        self._report_file.write(line)
+        self._report_file.write("\n")
 
 logger.debug(f"Analyzing test results: {test_results_path}")
 
@@ -166,10 +185,16 @@ block_count = 0
 expected_success_count = 0
 unexpected_success_count = 0
 
-if args.output_format == "readable":
-    reporter = ReadableTestReporter()
-elif args.output_format == "markdown":
-    reporter = MarkdownTestReporter()
+reporters = [ReadableTestReporter()]
+
+markdown_reporter = None
+if args.markdown_report:
+    markdown_reporter = MarkdownTestReporter(args.markdown_report)
+    reporters.append(markdown_reporter)
+
+#
+# Report results.
+#
 
 for srpm_name, srpm_results in test_results.items():
     result = srpm_results["Result"]
@@ -177,40 +202,51 @@ for srpm_name, srpm_results in test_results.items():
 
     display_log_path = False
     if result == "skipped":
-        reporter.on_skipped(srpm_name)
+        for reporter in reporters:
+            reporter.on_skipped(srpm_name)
         skip_count += 1
     elif result == "blocked":
-        reporter.on_blocked(srpm_name)
+        for reporter in reporters:
+            reporter.on_blocked(srpm_name)
         block_count += 1
     elif result == "failed":
         if expected_failure:
             expected_fail_count += 1
         else:
             unexpected_fail_count += 1  
-        reporter.on_failed(srpm_name, expected_failure, srpm_results["LogPath"])
+        for reporter in reporters:
+            reporter.on_failed(srpm_name, expected_failure, srpm_results["LogPath"])
     elif result == "succeeded":
         if expected_failure:
             unexpected_success_count += 1
         else:
             expected_success_count += 1
-        reporter.on_succeeded(srpm_name, expected_failure)
+        for reporter in reporters:
+            reporter.on_succeeded(srpm_name, expected_failure)
     else:
-        reporter.on_unknown_result(srpm_name)
+        for reporter in reporters:
+            reporter.on_unknown_result(srpm_name)
 
-if args.output_format == "readable":
-    print("")
-    if expected_success_count > 0:
-        print(f"Tests succeeded:              {expected_success_count}")
-    if unexpected_success_count > 0:
-        print(f"Tests succeeded unexpectedly: {unexpected_success_count}")
-    if expected_fail_count > 0:
-        print(f"Tests expected to fail:       {expected_fail_count}")
-    if unexpected_fail_count > 0:
-        print(f"Tests failed:                 {unexpected_fail_count}")
-    if block_count > 0:
-        print(f"Tests blocked:                {block_count}")
-    if skip_count > 0:
-        print(f"Tests skipped:                {skip_count}")
+if markdown_reporter:
+    markdown_reporter.close()
+
+#
+# Display a readable summary.
+#
+
+print("")
+if expected_success_count > 0:
+    print(f"Tests succeeded:              {expected_success_count}")
+if unexpected_success_count > 0:
+    print(f"Tests succeeded unexpectedly: {unexpected_success_count}")
+if expected_fail_count > 0:
+    print(f"Tests expected to fail:       {expected_fail_count}")
+if unexpected_fail_count > 0:
+    print(f"Tests failed:                 {unexpected_fail_count}")
+if block_count > 0:
+    print(f"Tests blocked:                {block_count}")
+if skip_count > 0:
+    print(f"Tests skipped:                {skip_count}")
 
 if unexpected_fail_count > 0 or block_count > 0:
     logger.error("One or more tests were failed or blocked; exiting with error.")

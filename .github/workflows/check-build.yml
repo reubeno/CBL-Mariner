@@ -13,7 +13,7 @@
 # * We build + test the packages in an Ubuntu VM runner. This is easiest in a GitHub
 #   action, since it's the only Linux OS supported running in the VM; in time,
 #   it may be worthwhile looking into running the package build itself in an
-#   Azure Linux 3.0 container.
+#   Azure Linux 3.0 environment.
 #
 # * We take a specific dependency on daily repos in Azure Linux 3.0+, as well as the
 #   Azure Linux 3.0 container. To extend support to 2.0, some work will be required
@@ -21,10 +21,7 @@
 #
 # * Packages without %check sections will have failed test runs.
 #
-# * This workflow doesn't know which specs' tests are *expected* to pass (i.e., baseline).
-#   We should consider expressing this baseline within this repo.
-#
-# * This workflow doesn't support building or running tests for "EXTENDED" specs.
+# * This workflow doesn't yet support building or running tests for "EXTENDED" specs.
 #
 
 name: "Spec Build/Test"
