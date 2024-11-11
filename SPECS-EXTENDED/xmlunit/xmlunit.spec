@@ -21,7 +21,7 @@ Distribution:   Azure Linux
 
 Name:           xmlunit
 Version:        1.5
-Release:        11%{?dist}
+Release:        10%{?dist}
 Summary:        Provides classes to do asserts on XML
 License:        BSD-3-Clause
 Group:          Development/Libraries/Java
