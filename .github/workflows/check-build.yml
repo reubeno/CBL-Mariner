@@ -135,7 +135,7 @@ jobs:
     needs: [detect-changes]
     env:
       updated_specs: ${{ needs.detect-changes.outputs.updated_specs }}
-      # updated_extended_specs: ${{ needs.detect-changes.outputs.updated_extended_specs }}
+      updated_extended_specs: ${{ needs.detect-changes.outputs.updated_extended_specs }}
       azl_extra_make_args: ${{ needs.detect-changes.outputs.azl_extra_make_args }}
 
     outputs:
@@ -161,8 +161,9 @@ jobs:
           echo "DAILY_BUILD_ID=${DAILY_BUILD_ID}" >>$GITHUB_OUTPUT
           echo "DAILY_BUILD_ARCH=x86-64" >>$GITHUB_OUTPUT
 
-      - name: Build modified specs
+      - name: "Build modified specs (base)"
         id: build-specs
+        if: ${{ env.updated_specs != '' }}
         run: |
           sudo make -C toolkit \
             build-packages \
@@ -170,6 +171,18 @@ jobs:
             -j$(nproc) \
             REBUILD_TOOLS=y \
             SRPM_PACK_LIST='${{ env.updated_specs }}'
+
+      - name: "Build modified specs (extended)"
+        id: build-extended-specs
+        if: ${{ env.updated_extended_specs != '' }}
+        run: |
+          sudo make -C toolkit \
+            build-packages \
+            $azl_extra_make_args \
+            -j$(nproc) \
+            REBUILD_TOOLS=y \
+            SPECS_DIR=$(pwd)/SPECS-EXTENDED \
+            SRPM_PACK_LIST='${{ env.updated_extended_specs }}'
 
       - name: Upload built RPMs
         uses: actions/upload-artifact@v4
@@ -188,7 +201,7 @@ jobs:
       - name: Publish result
         if: always()
         run: |
-          if [[ ${{ steps.build-specs.outcome }} == 'success' ]]; then
+          if [[ ${{ steps.build-specs.outcome }} == 'success' && ${{ steps.build-extended-specs.outcome }} == 'success' ]]; then
             echo "✅ Build succeeded" >>${GITHUB_STEP_SUMMARY}
           else
             echo "❌ Build failed" >>${GITHUB_STEP_SUMMARY}
