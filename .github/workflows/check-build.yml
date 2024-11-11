@@ -116,7 +116,7 @@ jobs:
           updated_specs=$(./toolkit/scripts/detect_changes.py --since ${{ env.base_sha }} --spec-names)
           updated_extended_specs=$(./toolkit/scripts/detect_changes.py --since ${{ env.base_sha }} --extended-spec-names)
           echo "Specs updated: '${updated_specs}'"
-          echo "Extended specs updated: '${updated_specs}'"
+          echo "Extended specs updated: '${updated_extended_specs}'"
           echo "updated_specs=$(echo ${updated_specs})" >>$GITHUB_ENV
           echo "updated_extended_specs=$(echo ${updated_extended_specs})" >>$GITHUB_ENV
 
@@ -206,7 +206,7 @@ jobs:
     needs: [detect-changes]
     env:
       updated_specs: ${{ needs.detect-changes.outputs.updated_specs }}
-      # updated_extended_specs: ${{ needs.detect-changes.outputs.updated_extended_specs }}
+      updated_extended_specs: ${{ needs.detect-changes.outputs.updated_extended_specs }}
       azl_extra_make_args: ${{ needs.detect-changes.outputs.azl_extra_make_args }}
 
     steps:
@@ -228,6 +228,9 @@ jobs:
           declare -a args=()
           for spec in ${{ env.updated_specs }}; do
             args+=(-s "${spec}")
+          done
+          for spec in ${{ env.updated_extended_specs }}; do
+            args+=(-e "${spec}")
           done
 
           ./toolkit/scripts/run_ptests.py --verbose --markdown-report=${GITHUB_STEP_SUMMARY} ${args[@]}
