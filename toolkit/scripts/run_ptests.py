@@ -80,28 +80,28 @@ class ReadableTestReporter:
         self._display_log_paths = display_log_paths
 
     def on_skipped(self, name: str):
-        print(f"⏩ {srpm_name}: SKIPPED")
+        print(f"⏩ {name}: SKIPPED")
 
     def on_blocked(self, name: str):
-        print(f"🚫 {srpm_name}: BLOCKED")
+        print(f"🚫 {name}: BLOCKED")
 
     def on_failed(self, name: str, expected_failure: bool, log_path: str):
         if expected_failure:
-            print(f"🟡 {srpm_name}: FAILED (expected)")
+            print(f"🟡 {name}: FAILED (expected)")
         else:
-            print(f"❌ {srpm_name}: FAILED")
+            print(f"❌ {name}: FAILED")
         
         if self._display_log_paths:
             print(f"    Log: {log_path}")
 
     def on_succeeded(self, name: str, expected_failure: bool):
         if expected_failure:
-            print(f"🔴 {srpm_name}: PASSED (unexpected)")
+            print(f"🔴 {name}: PASSED (unexpected)")
         else:
-            print(f"✅ {srpm_name}: PASSED")
+            print(f"✅ {name}: PASSED")
 
-    def on_unknown_result(self, name):
-        print(f"❓ {srpm_name}: {result}")
+    def on_unknown_result(self, name: str, result: str):
+        print(f"❓ {name}: {result}")
 
 class MarkdownTestReporter:
     def __init__(self, report_path: str):
@@ -112,21 +112,21 @@ class MarkdownTestReporter:
 
     def on_skipped(self, name: str):
         self._test_heading(name)
-        self._write_line(f"⏩ {srpm_name}: SKIPPED")
+        self._write_line(f"⏩ {name}: SKIPPED")
         self._write_line("")
 
     def on_blocked(self, name: str):
         self._test_heading(name)
-        self._write_line(f"🚫 {srpm_name}: BLOCKED")
+        self._write_line(f"🚫 {name}: BLOCKED")
         self._write_line("")
 
     def on_failed(self, name: str, expected_failure: bool, log_path: str):
         self._test_heading(name)
 
         if expected_failure:
-            self._write_line(f"🟡 {srpm_name}: FAILED (expected)")
+            self._write_line(f"🟡 {name}: FAILED (expected)")
         else:
-            self._write_line(f"❌ {srpm_name}: FAILED")
+            self._write_line(f"❌ {name}: FAILED")
 
         LINES_TO_SHOW = 100
 
@@ -144,15 +144,15 @@ class MarkdownTestReporter:
         self._test_heading(name)
 
         if expected_failure:
-            self._write_line(f"🔴 {srpm_name}: PASSED (unexpected)")
+            self._write_line(f"🔴 {name}: PASSED (unexpected)")
         else:
-            self._write_line(f"✅ {srpm_name}: PASSED")
+            self._write_line(f"✅ {name}: PASSED")
 
         self._write_line("")
 
-    def on_unknown_result(self, name):
+    def on_unknown_result(self, name: str, result: str):
         self._test_heading(name)
-        self._write_line(f"❓ {srpm_name}: {result}")
+        self._write_line(f"❓ {name}: {result}")
         self._write_line("")
 
     def _test_heading(self, name: str):
@@ -204,7 +204,7 @@ def analyze_test_results():
                 reporter.on_succeeded(srpm_name, expected_failure)
         else:
             for reporter in reporters:
-                reporter.on_unknown_result(srpm_name)
+                reporter.on_unknown_result(srpm_name, result)
 
 #
 # Run tests
@@ -215,9 +215,11 @@ if not args.specs and not args.extended_specs:
     sys.exit(1)
 
 if args.specs:
+    logger.debug("Running ptests against base specs")
     run_ptests(args.specs, os.path.join(repo_root_dir_path, "SPECS"))
 
 if args.extended_specs:
+    logger.debug("Running ptests against extended specs")
     run_ptests(args.extended_specs, os.path.join(repo_root_dir_path, "SPECS-EXTENDED"))
 
 #
@@ -228,6 +230,7 @@ reporters = [ReadableTestReporter()]
 
 markdown_reporter = None
 if args.markdown_report:
+    logger.debug(f"Writing markdown report to: {args.markdown_report}")
     markdown_reporter = MarkdownTestReporter(args.markdown_report)
     reporters.append(markdown_reporter)
 

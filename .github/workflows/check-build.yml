@@ -308,4 +308,5 @@ jobs:
       - name: "Test package install/uninstall"
         # TODO: For now we hard-code .azl3 + use of latest daily repo
         run: |
-          ./toolkit/scripts/test_package_install.sh -p RPMS -s "$(cat rpms.txt)" -y latest -d ".azl3"
+          set -euxo pipefail
+          ./toolkit/scripts/test_package_install.sh -v -p RPMS -s "$(cat rpms.txt)" -y latest -d ".azl3"

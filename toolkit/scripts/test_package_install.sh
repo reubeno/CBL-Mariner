@@ -13,8 +13,9 @@ DAILY_BUILD_ID=""
 # -u -> packages to not uninstall
 # -y -> daily build ID
 # -d -> dist tag
+# -v -> verbose output
 
-while getopts ":p:s:i:u:y:d:" OPTIONS; do
+while getopts ":p:s:i:u:y:d:v" OPTIONS; do
   case "${OPTIONS}" in
     p ) RPM_DIRECTORY=$OPTARG;;
     s ) RPMS_TO_INSTALL=${OPTARG//,/ } ;;
@@ -22,6 +23,7 @@ while getopts ":p:s:i:u:y:d:" OPTIONS; do
     u ) PACKAGES_TO_NOT_UNINSTALL=${OPTARG//,/ } ;;
     y ) DAILY_BUILD_ID=$OPTARG ;;
     d ) DIST_TAG=$OPTARG ;;
+    v ) set -x ;;
 
     \? )
         echo "Error - Invalid Option: -$OPTARG" 1>&2
