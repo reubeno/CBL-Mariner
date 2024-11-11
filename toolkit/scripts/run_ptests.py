@@ -77,9 +77,6 @@ def run_ptests(spec_names: Sequence[str], specs_dir_path: str):
     logger.info(f"Ran tests in {elapsed_time:.2f}s.")
 
 class ReadableTestReporter:
-    def __init__(self, display_log_paths: bool = True):
-        self._display_log_paths = display_log_paths
-
     def on_skipped(self, name: str):
         print(f"⏩ {name}: SKIPPED")
 
@@ -91,8 +88,6 @@ class ReadableTestReporter:
             print(f"🟡 {name}: FAILED (expected)")
         else:
             print(f"❌ {name}: FAILED")
-        
-        if self._display_log_paths:
             print(f"    Log: {log_path}")
 
     def on_succeeded(self, name: str, expected_failure: bool):
@@ -174,14 +169,12 @@ class Results:
     unexpected_success_count: int = 0
 
 
-def analyze_test_results(reporters) -> Results:
+def analyze_test_results(reporters, results):
     logger.debug(f"Analyzing test results: {test_results_path}")
 
     with open(test_results_path, "r") as test_results:
         test_results_text = test_results.read()
         test_results = json.loads(test_results_text)
-
-    results = Results()
 
     #
     # Report results.
@@ -192,7 +185,6 @@ def analyze_test_results(reporters) -> Results:
         result = srpm_results["Result"]
         expected_failure = srpm_results["ExpectedFailure"]
 
-        display_log_path = False
         if result == "skipped":
             for reporter in reporters:
                 reporter.on_skipped(srpm_name)
@@ -219,6 +211,7 @@ def analyze_test_results(reporters) -> Results:
             for reporter in reporters:
                 reporter.on_unknown_result(srpm_name, result)
 
+
 #
 # Run tests
 #
@@ -227,17 +220,7 @@ if not args.specs and not args.extended_specs:
     logger.error("no specs provided")
     sys.exit(1)
 
-if args.specs:
-    logger.debug("Running ptests against base specs")
-    run_ptests(args.specs, os.path.join(repo_root_dir_path, "SPECS"))
-
-if args.extended_specs:
-    logger.debug("Running ptests against extended specs")
-    run_ptests(args.extended_specs, os.path.join(repo_root_dir_path, "SPECS-EXTENDED"))
-
-#
-# Analyze results.
-#
+results = Results()
 
 reporters = [ReadableTestReporter()]
 
@@ -247,9 +230,15 @@ if args.markdown_report:
     markdown_reporter = MarkdownTestReporter(args.markdown_report)
     reporters.append(markdown_reporter)
 
-results = analyze_test_results(reporters)
+if args.specs:
+    logger.debug("Running ptests against base specs")
+    run_ptests(args.specs, os.path.join(repo_root_dir_path, "SPECS"))
+    analyze_test_results(reporters, results)
 
-analyze_test_results(reporters)
+if args.extended_specs:
+    logger.debug("Running ptests against extended specs")
+    run_ptests(args.extended_specs, os.path.join(repo_root_dir_path, "SPECS-EXTENDED"))
+    analyze_test_results(reporters, results)
 
 if markdown_reporter:
     logger.debug(f"Saving markdown report")
