@@ -163,7 +163,7 @@ class MarkdownTestReporter:
         self._report_file.write("\n")
 
 
-def analyze_test_results():
+def analyze_test_results(reporters):
     logger.debug(f"Analyzing test results: {test_results_path}")
 
     with open(test_results_path, "r") as test_results:
@@ -241,7 +241,10 @@ block_count = 0
 expected_success_count = 0
 unexpected_success_count = 0
 
+analyze_test_results(reporters)
+
 if markdown_reporter:
+    logger.debug(f"Saving markdown report")
     markdown_reporter.close()
 
 

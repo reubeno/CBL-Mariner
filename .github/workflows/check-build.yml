@@ -315,4 +315,4 @@ jobs:
             rpm_names+=("$(basename ${rpm_path})")
           done
 
-          ./toolkit/scripts/test_package_install.sh -v -p RPMS -s "${rpm_names[@]}" -y latest -d ".azl3"
+          ./toolkit/scripts/test_package_install.sh -p RPMS -s "${rpm_names[@]}" -y latest -d ".azl3"
