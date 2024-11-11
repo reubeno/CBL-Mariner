@@ -3,6 +3,7 @@
 # Licensed under the MIT License.
 
 import argparse
+import dataclasses
 import json
 import logging
 import multiprocessing
@@ -163,12 +164,24 @@ class MarkdownTestReporter:
         self._report_file.write("\n")
 
 
-def analyze_test_results(reporters):
+@dataclasses.dataclass
+class Results:
+    unexpected_fail_count: int = 0
+    expected_fail_count: int = 0
+    skip_count: int = 0
+    block_count: int = 0
+    expected_success_count: int = 0
+    unexpected_success_count: int = 0
+
+
+def analyze_test_results(reporters) -> Results:
     logger.debug(f"Analyzing test results: {test_results_path}")
 
     with open(test_results_path, "r") as test_results:
         test_results_text = test_results.read()
         test_results = json.loads(test_results_text)
+
+    results = Results()
 
     #
     # Report results.
@@ -183,23 +196,23 @@ def analyze_test_results(reporters):
         if result == "skipped":
             for reporter in reporters:
                 reporter.on_skipped(srpm_name)
-            skip_count += 1
+            results.skip_count += 1
         elif result == "blocked":
             for reporter in reporters:
                 reporter.on_blocked(srpm_name)
-            block_count += 1
+            results.block_count += 1
         elif result == "failed":
             if expected_failure:
-                expected_fail_count += 1
+                results.expected_fail_count += 1
             else:
-                unexpected_fail_count += 1  
+                results.unexpected_fail_count += 1  
             for reporter in reporters:
                 reporter.on_failed(srpm_name, expected_failure, srpm_results["LogPath"])
         elif result == "succeeded":
             if expected_failure:
-                unexpected_success_count += 1
+                results.unexpected_success_count += 1
             else:
-                expected_success_count += 1
+                results.expected_success_count += 1
             for reporter in reporters:
                 reporter.on_succeeded(srpm_name, expected_failure)
         else:
@@ -234,12 +247,7 @@ if args.markdown_report:
     markdown_reporter = MarkdownTestReporter(args.markdown_report)
     reporters.append(markdown_reporter)
 
-unexpected_fail_count = 0
-expected_fail_count = 0
-skip_count = 0
-block_count = 0
-expected_success_count = 0
-unexpected_success_count = 0
+results = analyze_test_results(reporters)
 
 analyze_test_results(reporters)
 
@@ -253,19 +261,19 @@ if markdown_reporter:
 #
 
 print("")
-if expected_success_count > 0:
-    print(f"Tests succeeded:              {expected_success_count}")
-if unexpected_success_count > 0:
-    print(f"Tests succeeded unexpectedly: {unexpected_success_count}")
-if expected_fail_count > 0:
-    print(f"Tests expected to fail:       {expected_fail_count}")
-if unexpected_fail_count > 0:
-    print(f"Tests failed:                 {unexpected_fail_count}")
-if block_count > 0:
-    print(f"Tests blocked:                {block_count}")
-if skip_count > 0:
-    print(f"Tests skipped:                {skip_count}")
+if results.expected_success_count > 0:
+    print(f"Tests succeeded:              {results.expected_success_count}")
+if results.unexpected_success_count > 0:
+    print(f"Tests succeeded unexpectedly: {results.unexpected_success_count}")
+if results.expected_fail_count > 0:
+    print(f"Tests expected to fail:       {results.expected_fail_count}")
+if results.unexpected_fail_count > 0:
+    print(f"Tests failed:                 {results.unexpected_fail_count}")
+if results.block_count > 0:
+    print(f"Tests blocked:                {results.block_count}")
+if results.skip_count > 0:
+    print(f"Tests skipped:                {results.skip_count}")
 
-if unexpected_fail_count > 0 or block_count > 0:
+if results.unexpected_fail_count > 0 or results.block_count > 0:
     logger.error("One or more tests were failed or blocked; exiting with error.")
     sys.exit(1)
