@@ -285,7 +285,7 @@ jobs:
     steps:
       - name: Install prerequisites
         run: |
-          tdnf install -y ca-certificates createrepo_c jq tar wget
+          tdnf install -y ca-certificates createrepo_c jq sudo tar wget
 
       - name: Checkout sources
         uses: actions/checkout@v4
