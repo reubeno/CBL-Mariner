@@ -312,7 +312,7 @@ jobs:
 
           declare -a rpm_names=()
           for rpm_path in $(cat rpms.txt); do
-            rpm_names+=("$(basename ${rpm_path}")
+            rpm_names+=("$(basename ${rpm_path})")
           done
 
           ./toolkit/scripts/test_package_install.sh -v -p RPMS -s "${rpm_names[@]}" -y latest -d ".azl3"
