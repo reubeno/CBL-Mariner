@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+azlbuild_dir=${script_dir}/toolkit/tools/azlbuild
+
+pushd "${azlbuild_dir}" >/dev/null 2>&1
+go build
+popd >/dev/null 2>&1
+
+"${azlbuild_dir}/azlbuild" $@

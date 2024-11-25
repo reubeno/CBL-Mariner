@@ -244,10 +244,12 @@ if __name__ == '__main__':
     parser.add_argument('--toolchain_specs',
                         metavar='toolchain_specs',
                         dest='toolchain_specs',
+                        default='',
                         help='a list of toolchain specs')
     parser.add_argument('--specs',
                         metavar='spec_path',
                         dest='specs',
+                        default=[],
                         type=argparse.FileType('r'),
                         nargs='+',
                         help='path to an RPM spec file')
