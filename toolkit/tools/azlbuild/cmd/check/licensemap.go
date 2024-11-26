@@ -4,27 +4,23 @@
 package check
 
 import (
-	"log/slog"
-	"os"
 	"os/exec"
 	"path"
 
 	"github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd"
-	"github.com/spf13/cobra"
 )
 
-var licenseMapCmd = &cobra.Command{
-	Use:   "license-map",
-	Short: "Check license map",
-	RunE: func(c *cobra.Command, args []string) error {
-		return checkLicenseMap(cmd.CmdEnv)
-	},
-	SilenceUsage: true,
+type licenseMapChecker struct{}
+
+func (licenseMapChecker) Name() string {
+	return "license-map"
 }
 
-func checkLicenseMap(env *cmd.BuildEnv) error {
-	slog.Info("Checking license map")
+func (licenseMapChecker) Description() string {
+	return "Check license map"
+}
 
+func (licenseMapChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
 	scriptArgs := []string{
 		path.Join(env.ToolkitDir, "scripts", "license_map.py"),
 		path.Join(env.LicensesAndNoticesDir, "SPECS/data/licenses.json"),
@@ -36,19 +32,11 @@ func checkLicenseMap(env *cmd.BuildEnv) error {
 
 	// TODO: Check Python prerequisites.
 	scriptCmd := exec.Command("python3", scriptArgs...)
-	scriptCmd.Stdout = os.Stdout
-	scriptCmd.Stderr = os.Stderr
 
-	err := scriptCmd.Run()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	result := RunExternalCheckerCmd(scriptCmd, "")
+	return []CheckResult{result}
 }
 
 func init() {
-	checkCmd.AddCommand(licenseMapCmd)
-
-	// Flags
+	registerChecker(licenseMapChecker{})
 }

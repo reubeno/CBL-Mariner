@@ -4,46 +4,38 @@
 package check
 
 import (
-	"log/slog"
-	"os"
+	"fmt"
 	"os/exec"
 	"path"
 
 	"github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd"
-	"github.com/spf13/cobra"
 )
 
-var toolchainManifestsCmd = &cobra.Command{
-	Use:   "toolchain-manifests",
-	Short: "Check toolchain manifests",
-	RunE: func(c *cobra.Command, args []string) error {
-		return checkToolchainManifests(cmd.CmdEnv)
-	},
-	SilenceUsage: true,
+type toolchainManifestChecker struct{}
+
+func (toolchainManifestChecker) Name() string {
+	return "toolchain-manifests"
 }
 
-func checkToolchainManifests(env *cmd.BuildEnv) error {
+func (toolchainManifestChecker) Description() string {
+	return "Check toolchain manifests"
+}
+
+func (toolchainManifestChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
 	scriptPath := path.Join(env.ToolkitDir, "scripts", "toolchain", "check_manifests.sh")
 
+	results := []CheckResult{}
 	for _, arch := range []string{"x86_64", "aarch64"} {
-		slog.Info("Checking toolchain manifests", "arch", arch)
-
 		scriptCmd := exec.Command(scriptPath, "-a", arch)
-		scriptCmd.Stdout = os.Stdout
-		scriptCmd.Stderr = os.Stderr
 		scriptCmd.Dir = env.ToolkitDir
 
-		err := scriptCmd.Run()
-		if err != nil {
-			return err
-		}
-
-		slog.Info("Check passed", "arch", arch)
+		result := RunExternalCheckerCmd(scriptCmd, fmt.Sprintf("(%s)", arch))
+		results = append(results, result)
 	}
 
-	return nil
+	return results
 }
 
 func init() {
-	checkCmd.AddCommand(toolchainManifestsCmd)
+	registerChecker(toolchainManifestChecker{})
 }

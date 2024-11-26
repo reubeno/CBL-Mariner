@@ -4,33 +4,42 @@
 package check
 
 import (
-	"log/slog"
-	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 
 	"github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd"
-	"github.com/spf13/cobra"
 )
 
-var specPath string
+type guidelineChecker struct{}
 
-var specGuidelinesCmd = &cobra.Command{
-	Use:   "spec-guidelines",
-	Short: "Check spec guidelines",
-	RunE: func(c *cobra.Command, args []string) error {
-		return checkSpecGuidelines(specPath, cmd.CmdEnv)
-	},
-	SilenceUsage: true,
+func (guidelineChecker) Name() string {
+	return "spec-guidelines"
 }
 
-func checkSpecGuidelines(specPath string, env *cmd.BuildEnv) error {
-	slog.Info("Checking spec guidelines", "spec", specPath)
+func (guidelineChecker) Description() string {
+	return "Check spec guidelines"
+}
 
+func (c guidelineChecker) CheckSpecs(env *cmd.BuildEnv, specPaths []string) []CheckResult {
+	var results []CheckResult
+
+	for _, specPath := range specPaths {
+		result := c.CheckSpec(env, specPath)
+		results = append(results, result)
+	}
+
+	return results
+}
+
+func (c guidelineChecker) CheckSpec(env *cmd.BuildEnv, specPath string) CheckResult {
 	absSpecPath, err := filepath.Abs(specPath)
 	if err != nil {
-		return err
+		return CheckResult{
+			SpecPath: specPath,
+			Status:   CheckInternalError,
+			Error:    err,
+		}
 	}
 
 	scriptArgs := []string{
@@ -41,24 +50,11 @@ func checkSpecGuidelines(specPath string, env *cmd.BuildEnv) error {
 
 	// TODO: Check Python prerequisites.
 	scriptCmd := exec.Command("python3", scriptArgs...)
-	scriptCmd.Stdout = os.Stdout
-	scriptCmd.Stderr = os.Stderr
 	scriptCmd.Dir = env.RepoRootDir
 
-	err = scriptCmd.Run()
-	if err != nil {
-		return err
-	}
-
-	slog.Info("Check passed")
-
-	return nil
+	return RunExternalCheckerCmd(scriptCmd, specPath)
 }
 
 func init() {
-	checkCmd.AddCommand(specGuidelinesCmd)
-
-	specGuidelinesCmd.Flags().StringVarP(&specPath, "spec", "s", "", "spec file path")
-	specGuidelinesCmd.MarkFlagRequired("spec")
-	specGuidelinesCmd.MarkFlagFilename("spec")
+	registerChecker(guidelineChecker{})
 }

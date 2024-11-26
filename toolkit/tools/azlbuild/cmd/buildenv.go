@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -46,6 +47,36 @@ func (env *BuildEnv) GetDistTag() (string, error) {
 	}
 
 	return strings.TrimSpace(output), nil
+}
+
+func (env *BuildEnv) GetSpecRootDirs() []string {
+	return []string{env.SpecsDir, env.ExtendedSpecsDir, env.SignedSpecsDir}
+}
+
+func (env *BuildEnv) FindSpecByName(specName string) (string, error) {
+	specRootDirs := env.GetSpecRootDirs()
+
+	// Look in the most obvious places first.
+	for _, specRootDir := range specRootDirs {
+		candidatePath := path.Join(specRootDir, specName, fmt.Sprintf("%s.spec", specName))
+		if _, err := os.Stat(candidatePath); err == nil {
+			return candidatePath, nil
+		}
+	}
+
+	// Fall back to looking more deeply.
+	for _, specRootDir := range specRootDirs {
+		matches, err := filepath.Glob(path.Join(specRootDir, "*", fmt.Sprintf("%s.spec", specName)))
+		if err != nil {
+			return "", err
+		}
+
+		if len(matches) > 0 {
+			return matches[0], nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find spec: %s", specName)
 }
 
 type ToolkitMakeTarget struct {
@@ -124,7 +155,7 @@ func (env *BuildEnv) ToolkitMakeCmd(target ToolkitMakeTarget, additionalArgs ...
 	makeArgs = append(
 		makeArgs,
 		target.MakeTarget,
-		fmt.Sprintf("REBUILD_TOOLS=%s", boolToYN(target.RebuildTools)),
+		fmt.Sprintf("REBUILD_TOOLS=%s", BoolToYN(target.RebuildTools)),
 		"GOFLAGS=-buildvcs=false",
 		fmt.Sprintf("LOG_LEVEL=%s", toolkitLogLevel),
 	)
@@ -142,9 +173,33 @@ func (env *BuildEnv) ToolkitMakeCmd(target ToolkitMakeTarget, additionalArgs ...
 	return makeCmd, nil
 }
 
-func boolToYN(b bool) string {
+func BoolToYN(b bool) string {
 	if b {
 		return "y"
 	}
 	return "n"
+}
+
+func (env *BuildEnv) DetectLikelyChangedSpecs() ([]string, error) {
+	scriptPath := path.Join(env.ToolkitDir, "scripts", "detect_changes.py")
+
+	scriptCmd := exec.Command("python3", scriptPath, "--include-uncommitted")
+
+	output, err := scriptCmd.Output()
+	if err != nil {
+		return []string{}, err
+	}
+
+	specs := []string{}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && strings.HasSuffix(line, ".spec") {
+			specs = append(specs, line)
+		}
+	}
+
+	slog.Debug("Detected likely changed specs", "specs", specs)
+
+	return specs, nil
 }

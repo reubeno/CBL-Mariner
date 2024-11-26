@@ -4,27 +4,23 @@
 package check
 
 import (
-	"log/slog"
-	"os"
 	"os/exec"
 	"path"
 
 	"github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd"
-	"github.com/spf13/cobra"
 )
 
-var entangledSpecsCmd = &cobra.Command{
-	Use:   "entangled-specs",
-	Short: "Check entangled specs",
-	RunE: func(c *cobra.Command, args []string) error {
-		return checkEntangledSpecs(cmd.CmdEnv)
-	},
-	SilenceUsage: true,
+type entangledSpecsChecker struct{}
+
+func (entangledSpecsChecker) Name() string {
+	return "entangled-specs"
 }
 
-func checkEntangledSpecs(env *cmd.BuildEnv) error {
-	slog.Info("Checking entangled specs")
+func (entangledSpecsChecker) Description() string {
+	return "Check entangled specs"
+}
 
+func (entangledSpecsChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
 	scriptArgs := []string{
 		path.Join(env.ToolkitDir, "scripts", "check_entangled_specs.py"),
 		env.RepoRootDir,
@@ -32,17 +28,11 @@ func checkEntangledSpecs(env *cmd.BuildEnv) error {
 
 	// TODO: Check Python prerequisites.
 	scriptCmd := exec.Command("python3", scriptArgs...)
-	scriptCmd.Stdout = os.Stdout
-	scriptCmd.Stderr = os.Stderr
 
-	err := scriptCmd.Run()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	result := RunExternalCheckerCmd(scriptCmd, "")
+	return []CheckResult{result}
 }
 
 func init() {
-	checkCmd.AddCommand(entangledSpecsCmd)
+	registerChecker(entangledSpecsChecker{})
 }
