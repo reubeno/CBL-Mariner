@@ -85,6 +85,7 @@ type ToolkitMakeTarget struct {
 	RebuildTools bool
 	RequiresSudo bool
 	RunQuietly   bool
+	DryRun       bool
 }
 
 func NewToolkitMakeTarget(name string) ToolkitMakeTarget {
@@ -114,6 +115,11 @@ func (env *BuildEnv) RunToolkitMake(target ToolkitMakeTarget, additionalArgs ...
 	makeCmd, err := env.ToolkitMakeCmd(target, additionalArgs...)
 	if err != nil {
 		return err
+	}
+
+	if target.DryRun {
+		slog.Info("Dry run; would invoke toolkit make target", "command", makeCmd)
+		return nil
 	}
 
 	makeCmd.Stdout = os.Stdout
