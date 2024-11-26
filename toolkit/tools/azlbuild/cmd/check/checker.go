@@ -112,7 +112,7 @@ func runChecker(checker SpecChecker, options *specCheckerOptions) error {
 	}
 
 	if options.changedSpecs {
-		changedSpecPaths, err := cmd.CmdEnv.DetectLikelyChangedSpecs()
+		changedSpecPaths, err := cmd.CmdEnv.DetectLikelyChangedFiles(true, true)
 		if err != nil {
 			return nil
 		}

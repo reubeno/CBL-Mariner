@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/microsoft/azurelinux/toolkit/tools/internal/rpm"
 )
 
 type BuildEnv struct {
@@ -186,26 +188,82 @@ func BoolToYN(b bool) string {
 	return "n"
 }
 
-func (env *BuildEnv) DetectLikelyChangedSpecs() ([]string, error) {
-	scriptPath := path.Join(env.ToolkitDir, "scripts", "detect_changes.py")
+func (env *BuildEnv) DetectLikelyChangedFiles(includeUncommitted, specsOnly bool) ([]string, error) {
+	scriptArgs := []string{path.Join(env.ToolkitDir, "scripts", "detect_changes.py")}
 
-	scriptCmd := exec.Command("python3", scriptPath, "--include-uncommitted")
+	if includeUncommitted {
+		scriptArgs = append(scriptArgs, "--include-uncommitted")
+	}
+
+	scriptCmd := exec.Command("python3", scriptArgs...)
 
 	output, err := scriptCmd.Output()
 	if err != nil {
 		return []string{}, err
 	}
 
-	specs := []string{}
+	filePaths := []string{}
 
 	for _, line := range strings.Split(string(output), "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" && strings.HasSuffix(line, ".spec") {
-			specs = append(specs, line)
+		if line == "" {
+			continue
+		}
+
+		if !specsOnly || strings.HasSuffix(line, ".spec") {
+			filePaths = append(filePaths, line)
 		}
 	}
 
-	slog.Debug("Detected likely changed specs", "specs", specs)
+	slog.Debug("Detected likely changed files", "files", filePaths)
 
-	return specs, nil
+	return filePaths, nil
+}
+
+func (env *BuildEnv) GetLkgDailyRepoId() (string, error) {
+	tempDir, err := os.MkdirTemp(os.TempDir(), "azl")
+	if err != nil {
+		return "", err
+	}
+
+	defer os.RemoveAll(tempDir)
+
+	cmd := exec.Command(path.Join(env.ToolkitDir, "scripts", "get_lkg_id.sh"), tempDir)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	id := strings.TrimSpace(string(output))
+	if id == "" {
+		return "", fmt.Errorf("get_lkg_id.sh returned empty string")
+	}
+
+	return id, nil
+}
+
+func (env *BuildEnv) GetDailyRepoBaseUri(repoId string) (string, error) {
+	arch, err := rpm.GetRpmArch(runtime.GOARCH)
+	if err != nil {
+		return "", err
+	}
+
+	translatedArch := strings.ReplaceAll(arch, "_", "-")
+
+	return fmt.Sprintf("https://mariner3dailydevrepo.blob.core.windows.net/daily-repo-%s-%s", repoId, translatedArch), nil
+}
+
+func (env *BuildEnv) GetProdRepoBaseUris(includedExtendedRepo bool) ([]string, error) {
+	uris := []string{
+		"https://packages.microsoft.com/azurelinux/3.0/prod/base/$basearch",
+		"https://packages.microsoft.com/azurelinux/3.0/prod/ms-oss/$basearch",
+		"https://packages.microsoft.com/azurelinux/3.0/prod/ms-non-oss/$basearch",
+	}
+
+	if includedExtendedRepo {
+		uris = append(uris, "https://packages.microsoft.com/azurelinux/3.0/prod/extended/$basearch")
+	}
+
+	return uris, nil
 }
