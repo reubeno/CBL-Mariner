@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,6 +21,7 @@ type BuildEnv struct {
 	SpecsDir              string
 	ExtendedSpecsDir      string
 	SignedSpecsDir        string
+	ImageOutputDir        string
 
 	verbose bool
 	quiet   bool
@@ -33,6 +35,7 @@ func NewBuildEnv(toolkitDir, repoRoot string, verbose bool, quiet bool) *BuildEn
 		SpecsDir:              path.Join(repoRoot, "SPECS"),
 		ExtendedSpecsDir:      path.Join(repoRoot, "SPECS-EXTENDED"),
 		SignedSpecsDir:        path.Join(repoRoot, "SPECS-SIGNED"),
+		ImageOutputDir:        path.Join(repoRoot, "out", "images"),
 
 		verbose: verbose,
 		quiet:   quiet,
@@ -266,4 +269,54 @@ func (env *BuildEnv) GetProdRepoBaseUris(includedExtendedRepo bool) ([]string, e
 	}
 
 	return uris, nil
+}
+
+func (env *BuildEnv) ResolveImageConfig(specifiedConfig string) (string, error) {
+	// Make sure *something* was specified.
+	if specifiedConfig == "" {
+		slog.Error("config file is required; you may either specify a default configuration or a full path to a .json image config file")
+
+		foundConfigFilePaths, _ := filepath.Glob(path.Join(env.ToolkitDir, "imageconfigs", "*.json"))
+		configsToAdvertise := []string{}
+		for _, filePath := range foundConfigFilePaths {
+			if !strings.HasSuffix(filePath, ".json") {
+				continue
+			}
+
+			name := strings.TrimSuffix(filepath.Base(filePath), ".json")
+			configsToAdvertise = append(configsToAdvertise, name)
+		}
+
+		if len(configsToAdvertise) > 0 {
+			fmt.Fprintf(os.Stderr, "Available default configurations:\n")
+			for _, name := range configsToAdvertise {
+				fmt.Fprintf(os.Stderr, "  %s\n", name)
+			}
+		}
+
+		return "", fmt.Errorf("no config file path provided")
+	}
+
+	// See if the file exists.
+	_, err := os.Stat(specifiedConfig)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+
+		// See if it's a relative stem name of a config file under the `imageconfigs` dir?
+		candidatePath := path.Join(env.ToolkitDir, "imageconfigs", specifiedConfig+".json")
+		if _, otherErr := os.Stat(candidatePath); otherErr == nil {
+			specifiedConfig = candidatePath
+		} else {
+			return "", err
+		}
+	}
+
+	absConfigFilePath, err := filepath.Abs(specifiedConfig)
+	if err != nil {
+		return "", err
+	}
+
+	return absConfigFilePath, nil
 }
