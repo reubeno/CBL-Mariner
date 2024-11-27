@@ -20,12 +20,13 @@ import (
 )
 
 type bootOptions struct {
+	authorizedPublicKeyPath string
 	dryRun                  bool
-	ephemeralDisk           bool
+	useDiskRW               bool
 	imageConfig             string
+	secureBoot              bool
 	testUserName            string
 	testUserPassword        string
-	authorizedPublicKeyPath string
 	workDir                 string
 }
 
@@ -68,7 +69,8 @@ func init() {
 	bootCmd.Flags().StringVar(&options.workDir, "work-dir", "", "Directory to use for temporary files (may include large disk images)")
 	bootCmd.MarkFlagDirname("work-dir")
 
-	bootCmd.Flags().BoolVarP(&options.ephemeralDisk, "ephemeral", "e", false, "Use an ephemeral disk for the VM (changes will be lost at shutdown)")
+	bootCmd.Flags().BoolVar(&options.useDiskRW, "rwdisk", false, "Allow writes to persist to the disk image")
+	bootCmd.Flags().BoolVar(&options.secureBoot, "secure-boot", false, "Enable secure boot for the VM")
 }
 
 func bootImage(env *cmd.BuildEnv) error {
@@ -116,10 +118,10 @@ func bootImage(env *cmd.BuildEnv) error {
 
 	imagePath := matches[len(matches)-1]
 
-	return bootImageUsingDiskFile(imagePath, artifact.Type, artifact.Compression, systemConfig.BootType, options.ephemeralDisk, options.dryRun, options.workDir)
+	return bootImageUsingDiskFile(imagePath, artifact.Type, artifact.Compression, systemConfig.BootType, options.secureBoot, options.useDiskRW, options.dryRun, options.workDir)
 }
 
-func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType string, ephemeralDisk, dryRun bool, workDir string) error {
+func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType string, secureBoot, rwDisk, dryRun bool, workDir string) error {
 	if bootType != "efi" {
 		return fmt.Errorf("only EFI boot is supported")
 	}
@@ -128,8 +130,10 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 		return fmt.Errorf("compressed images are not supported")
 	}
 
-	const fwPath = "/usr/share/OVMF/OVMF_CODE.fd"
-	const nvramTemplatePath = "/usr/share/OVMF/OVMF_VARS.fd"
+	fwPath, nvramTemplatePath, err := findVmFirmware(secureBoot)
+	if err != nil {
+		return nil
+	}
 
 	tempDir, err := os.MkdirTemp(workDir, "azl")
 	if err != nil {
@@ -154,7 +158,7 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 
 	var selectedDiskPath string
 	var selectedDiskType string
-	if ephemeralDisk {
+	if !rwDisk {
 		selectedDiskType = artifactType
 		selectedDiskPath = path.Join(tempDir, "ephemeral.img")
 
@@ -167,6 +171,13 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 		selectedDiskType = artifactType
 	}
 
+	var secureBootOnOff string
+	if secureBoot {
+		secureBootOnOff = "on"
+	} else {
+		secureBootOnOff = "off"
+	}
+
 	qemuArgs := []string{
 		"qemu-system-x86_64",
 		"-enable-kvm",
@@ -176,7 +187,7 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 		"-m", "4G",
 		"-object", "rng-random,filename=/dev/urandom,id=rng0",
 		"-device", "virtio-rng-pci,rng=rng0",
-		"-global", "driver=cfi.pflash01,property=secure,value=off",
+		"-global", fmt.Sprintf("driver=cfi.pflash01,property=secure,value=%s", secureBootOnOff),
 		"-drive", fmt.Sprintf("if=pflash,format=raw,unit=0,file=%s,readonly=on", fwPath),
 		"-drive", fmt.Sprintf("if=pflash,format=raw,unit=1,file=%s", nvramPath),
 		"-drive", fmt.Sprintf("if=none,id=hd,file=%s,format=%s", selectedDiskPath, selectedDiskType),
@@ -202,18 +213,68 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 	return qemuCmd.Run()
 }
 
-func convertDiskImage(sourcePath, sourceType, destPath, destType string, dryRun bool) error {
-	qemuImgCmd := exec.Command("qemu-img", "convert", "-f", sourceType, "-O", destType, sourcePath, destPath)
-	qemuImgCmd.Stdout = os.Stdout
-	qemuImgCmd.Stderr = os.Stderr
-
-	if dryRun {
-		slog.Info("Dry run; would convert disk image", "command", qemuImgCmd)
-		return nil
+func findVmFirmware(secureBoot bool) (fwPath, nvramTemplatePath string, err error) {
+	var fwPaths []string
+	var nvramTemplatePaths []string
+	if secureBoot {
+		fwPaths = []string{
+			"/usr/share/OVMF/OVMF_CODE.secboot.fd",
+			"/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
+		}
+		nvramTemplatePaths = []string{
+			"/usr/share/OVMF/OVMF_VARS.secboot.fd",
+			"/usr/share/OVMF/OVMF_VARS_4M.secboot.fd",
+		}
+	} else {
+		fwPaths = []string{
+			"/usr/share/OVMF/OVMF_CODE.fd",
+			"/usr/share/OVMF/OVMF_CODE_4M.fd",
+		}
+		nvramTemplatePaths = []string{
+			"/usr/share/OVMF/OVMF_VARS.fd",
+			"/usr/share/OVMF/OVMF_VARS_4M.fd",
+		}
 	}
 
-	return qemuImgCmd.Run()
+	for _, candidatePath := range fwPaths {
+		if _, err := os.Stat(candidatePath); err == nil {
+			fwPath = candidatePath
+			break
+		}
+	}
+
+	if fwPath == "" {
+		err = fmt.Errorf("OVMF firmware not found")
+		return
+	}
+
+	for _, candidatePath := range nvramTemplatePaths {
+		if _, err := os.Stat(candidatePath); err == nil {
+			nvramTemplatePath = candidatePath
+			break
+		}
+	}
+
+	if nvramTemplatePath == "" {
+		err = fmt.Errorf("NVRAM template not found")
+		return
+	}
+
+	return
 }
+
+// func convertDiskImage(sourcePath, sourceType, destPath, destType string, dryRun bool) error {
+// 	qemuImgCmd := exec.Command("qemu-img", "convert", "-f", sourceType, "-O", destType, sourcePath, destPath)
+// 	qemuImgCmd.Stdout = os.Stdout
+// 	qemuImgCmd.Stderr = os.Stderr
+
+// 	if dryRun {
+// 		slog.Info("Dry run; would convert disk image", "command", qemuImgCmd)
+// 		return nil
+// 	}
+
+// 	return qemuImgCmd.Run()
+// }
 
 func buildCloudInitMetadataIso(options bootOptions, outputFilePath string, dryRun bool, workDir string) error {
 	tempDir, err := os.MkdirTemp(workDir, "azl")
