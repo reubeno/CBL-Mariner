@@ -35,6 +35,16 @@ var bootCmd = &cobra.Command{
 	Use:   "boot",
 	Short: "Boot Azure Linux images",
 	RunE: func(c *cobra.Command, args []string) error {
+		// Set up default for work dir
+		if options.workDir == "" {
+			options.workDir = path.Join(cmd.CmdEnv.RepoRootDir, "artifacts")
+			err := os.MkdirAll(options.workDir, 0755)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Now boot.
 		return bootImage(cmd.CmdEnv)
 	},
 	SilenceUsage: true,
@@ -44,7 +54,9 @@ func init() {
 	cmd.RootCmd.AddCommand(bootCmd)
 
 	bootCmd.Flags().BoolVar(&options.dryRun, "dry-run", false, "Prepare build environment but do not build")
+
 	bootCmd.Flags().StringVarP(&options.imageConfig, "config", "c", "", "Path to the image config file")
+	bootCmd.MarkFlagRequired("config")
 
 	bootCmd.Flags().StringVar(&options.testUserName, "test-user", "test", "Name for the test account (defaults to test)")
 	bootCmd.Flags().StringVar(&options.testUserPassword, "test-password", "", "Password for the test account")
@@ -53,7 +65,7 @@ func init() {
 	bootCmd.Flags().StringVar(&options.authorizedPublicKeyPath, "authorized-public-key", "", "Path to public key authorized for SSH to test user account")
 	bootCmd.MarkFlagFilename("authorized-public-key")
 
-	bootCmd.Flags().StringVar(&options.workDir, "work-dir", os.TempDir(), "Directory to use for temporary files (may include large disk images)")
+	bootCmd.Flags().StringVar(&options.workDir, "work-dir", "", "Directory to use for temporary files (may include large disk images)")
 	bootCmd.MarkFlagDirname("work-dir")
 
 	bootCmd.Flags().BoolVarP(&options.ephemeralDisk, "ephemeral", "e", false, "Use an ephemeral disk for the VM (changes will be lost at shutdown)")
@@ -143,14 +155,6 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 	var selectedDiskPath string
 	var selectedDiskType string
 	if ephemeralDisk {
-		// selectedDiskType = "qcow2"
-		// selectedDiskPath = path.Join(tempDir, "ephemeral.qcow2")
-
-		// err = convertDiskImage(imagePath, artifactType, selectedDiskPath, selectedDiskType, dryRun)
-		// if err != nil {
-		// 	return err
-		// }
-
 		selectedDiskType = artifactType
 		selectedDiskPath = path.Join(tempDir, "ephemeral.img")
 
@@ -164,6 +168,7 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 	}
 
 	qemuArgs := []string{
+		"qemu-system-x86_64",
 		"-enable-kvm",
 		"-machine", "q35,smm=on",
 		"-cpu", "host",
@@ -184,7 +189,7 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 		"-serial", "mon:stdio",
 	}
 
-	qemuCmd := exec.Command("qemu-system-x86_64", qemuArgs...)
+	qemuCmd := exec.Command("sudo", qemuArgs...)
 	qemuCmd.Stdout = os.Stdout
 	qemuCmd.Stderr = os.Stderr
 	qemuCmd.Stdin = os.Stdin
