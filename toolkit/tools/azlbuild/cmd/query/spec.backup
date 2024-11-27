@@ -1,7 +1,7 @@
 // Copyright Microsoft Corporation.
 // Licensed under the MIT License.
 
-package query
+package disabled
 
 import (
 	"log/slog"

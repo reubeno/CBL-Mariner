@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/lmittmann/tint"
-	"github.com/microsoft/azurelinux/toolkit/tools/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -142,6 +141,6 @@ func initLogging() {
 		}),
 	))
 
-	// Also initialize the logrus logger
-	logger.InitStderrLog()
+	// // Also initialize the logrus logger
+	// logger.InitStderrLog()
 }

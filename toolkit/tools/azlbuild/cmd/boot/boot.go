@@ -5,6 +5,7 @@ package build
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,14 +15,18 @@ import (
 	"strings"
 
 	"github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd"
-	"github.com/microsoft/azurelinux/toolkit/tools/imagegen/configuration"
-	"github.com/microsoft/azurelinux/toolkit/tools/internal/file"
+	"github.com/microsoft/azurelinux/toolkit/tools/azlbuild/utils"
 	"github.com/spf13/cobra"
 )
 
 type bootOptions struct {
-	dryRun      bool
-	imageConfig string
+	dryRun                  bool
+	ephemeralDisk           bool
+	imageConfig             string
+	testUserName            string
+	testUserPassword        string
+	authorizedPublicKeyPath string
+	workDir                 string
 }
 
 var options bootOptions
@@ -40,6 +45,18 @@ func init() {
 
 	bootCmd.Flags().BoolVar(&options.dryRun, "dry-run", false, "Prepare build environment but do not build")
 	bootCmd.Flags().StringVarP(&options.imageConfig, "config", "c", "", "Path to the image config file")
+
+	bootCmd.Flags().StringVar(&options.testUserName, "test-user", "test", "Name for the test account (defaults to test)")
+	bootCmd.Flags().StringVar(&options.testUserPassword, "test-password", "", "Password for the test account")
+	bootCmd.MarkFlagRequired("test-password")
+
+	bootCmd.Flags().StringVar(&options.authorizedPublicKeyPath, "authorized-public-key", "", "Path to public key authorized for SSH to test user account")
+	bootCmd.MarkFlagFilename("authorized-public-key")
+
+	bootCmd.Flags().StringVar(&options.workDir, "work-dir", os.TempDir(), "Directory to use for temporary files (may include large disk images)")
+	bootCmd.MarkFlagDirname("work-dir")
+
+	bootCmd.Flags().BoolVarP(&options.ephemeralDisk, "ephemeral", "e", false, "Use an ephemeral disk for the VM (changes will be lost at shutdown)")
 }
 
 func bootImage(env *cmd.BuildEnv) error {
@@ -50,7 +67,7 @@ func bootImage(env *cmd.BuildEnv) error {
 
 	configName := strings.TrimSuffix(filepath.Base(configFilePath), ".json")
 
-	config, err := configuration.Load(configFilePath)
+	config, err := utils.ParseImageConfig(configFilePath)
 	if err != nil {
 		return err
 	}
@@ -87,10 +104,10 @@ func bootImage(env *cmd.BuildEnv) error {
 
 	imagePath := matches[len(matches)-1]
 
-	return bootImageUsingDiskFile(imagePath, artifact.Type, artifact.Compression, systemConfig.BootType, options.dryRun)
+	return bootImageUsingDiskFile(imagePath, artifact.Type, artifact.Compression, systemConfig.BootType, options.ephemeralDisk, options.dryRun, options.workDir)
 }
 
-func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType string, dryRun bool) error {
+func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType string, ephemeralDisk, dryRun bool, workDir string) error {
 	if bootType != "efi" {
 		return fmt.Errorf("only EFI boot is supported")
 	}
@@ -102,7 +119,7 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 	const fwPath = "/usr/share/OVMF/OVMF_CODE.fd"
 	const nvramTemplatePath = "/usr/share/OVMF/OVMF_VARS.fd"
 
-	tempDir, err := os.MkdirTemp(os.TempDir(), "azl")
+	tempDir, err := os.MkdirTemp(workDir, "azl")
 	if err != nil {
 		return err
 	}
@@ -111,9 +128,39 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 
 	nvramPath := path.Join(tempDir, "nvram.bin")
 
-	err = file.Copy(nvramTemplatePath, nvramPath)
+	err = copyFile(nvramTemplatePath, nvramPath)
 	if err != nil {
 		return err
+	}
+
+	cloudInitMetadataIsoPath := path.Join(tempDir, "cloud-init.iso")
+
+	err = buildCloudInitMetadataIso(options, cloudInitMetadataIsoPath, dryRun, workDir)
+	if err != nil {
+		return err
+	}
+
+	var selectedDiskPath string
+	var selectedDiskType string
+	if ephemeralDisk {
+		// selectedDiskType = "qcow2"
+		// selectedDiskPath = path.Join(tempDir, "ephemeral.qcow2")
+
+		// err = convertDiskImage(imagePath, artifactType, selectedDiskPath, selectedDiskType, dryRun)
+		// if err != nil {
+		// 	return err
+		// }
+
+		selectedDiskType = artifactType
+		selectedDiskPath = path.Join(tempDir, "ephemeral.img")
+
+		err = copyFile(imagePath, selectedDiskPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		selectedDiskPath = imagePath
+		selectedDiskType = artifactType
 	}
 
 	qemuArgs := []string{
@@ -127,10 +174,11 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 		"-global", "driver=cfi.pflash01,property=secure,value=off",
 		"-drive", fmt.Sprintf("if=pflash,format=raw,unit=0,file=%s,readonly=on", fwPath),
 		"-drive", fmt.Sprintf("if=pflash,format=raw,unit=1,file=%s", nvramPath),
-		"-drive", fmt.Sprintf("if=none,id=hd,file=%s,format=%s", imagePath, artifactType),
+		"-drive", fmt.Sprintf("if=none,id=hd,file=%s,format=%s", selectedDiskPath, selectedDiskType),
 		"-device", "virtio-scsi-pci,id=scsi",
 		"-device", "scsi-hd,drive=hd,bootindex=1",
-		"-netdev", "user,id=n1,hostfwd=tcp::5555-:22",
+		"-cdrom", cloudInitMetadataIsoPath,
+		"-netdev", "user,id=n1,hostfwd=tcp::8888-:22",
 		"-device", "virtio-net-pci,netdev=n1",
 		"-nographic",
 		"-serial", "mon:stdio",
@@ -147,4 +195,127 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 	}
 
 	return qemuCmd.Run()
+}
+
+func convertDiskImage(sourcePath, sourceType, destPath, destType string, dryRun bool) error {
+	qemuImgCmd := exec.Command("qemu-img", "convert", "-f", sourceType, "-O", destType, sourcePath, destPath)
+	qemuImgCmd.Stdout = os.Stdout
+	qemuImgCmd.Stderr = os.Stderr
+
+	if dryRun {
+		slog.Info("Dry run; would convert disk image", "command", qemuImgCmd)
+		return nil
+	}
+
+	return qemuImgCmd.Run()
+}
+
+func buildCloudInitMetadataIso(options bootOptions, outputFilePath string, dryRun bool, workDir string) error {
+	tempDir, err := os.MkdirTemp(workDir, "azl")
+	if err != nil {
+		return err
+	}
+
+	defer os.RemoveAll(tempDir)
+
+	metaDataPath := path.Join(tempDir, "meta-data")
+	err = generateCloudInitMetadata(metaDataPath)
+	if err != nil {
+		return err
+	}
+
+	userDataPath := path.Join(tempDir, "user-data")
+	err = generateCloudInitUserData(options, userDataPath)
+	if err != nil {
+		return err
+	}
+
+	isoCmd := exec.Command("genisoimage", "-output", outputFilePath, "-volid", "cidata", "-joliet", "-rock", metaDataPath, userDataPath)
+
+	if dryRun {
+		slog.Info("Dry run; would create cloud-init metadata ISO", "command", isoCmd)
+		return nil
+	}
+
+	return isoCmd.Run()
+}
+
+func generateCloudInitMetadata(outputFilePath string) error {
+	const contents = `
+local-hostname: azurelinux-vm
+`
+
+	return os.WriteFile(outputFilePath, []byte(contents), 0644)
+}
+
+func generateCloudInitUserData(options bootOptions, outputFilePath string) error {
+	trueValue := true
+	falseValue := false
+
+	testUserConfig := utils.CloudUserConfig{
+		Name:                 options.testUserName,
+		Description:          "Test User",
+		EnableSSHPaswordAuth: &trueValue,
+		Shell:                "/bin/bash",
+		Sudo:                 []string{"ALL=(ALL) NOPASSWD:ALL"},
+		LockPassword:         &falseValue,
+		PlainTextPassword:    options.testUserPassword,
+		Groups:               []string{"sudo"},
+	}
+
+	if options.authorizedPublicKeyPath != "" {
+		publicKeyBytes, err := os.ReadFile(options.authorizedPublicKeyPath)
+		if err != nil {
+			return err
+		}
+
+		testUserConfig.SSHAuthorizedKeys = append(testUserConfig.SSHAuthorizedKeys, string(publicKeyBytes))
+	}
+
+	detailedConfig := utils.CloudConfig{
+		EnableSSHPaswordAuth: &trueValue,
+		DisableRootUser:      &trueValue,
+		ChangePasswords: &utils.CloudPasswordConfig{
+			Expire: &falseValue,
+		},
+		Users: []utils.CloudUserConfig{
+			{
+				Name: "default",
+			},
+			testUserConfig,
+		},
+	}
+
+	bytes, err := utils.MarshalCloudConfigToYAML(&detailedConfig)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(outputFilePath, bytes, 0644)
+}
+
+func copyFile(sourcePath, destPath string) error {
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		return nil
+	}
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return err
+	}
+
+	err = destFile.Close()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

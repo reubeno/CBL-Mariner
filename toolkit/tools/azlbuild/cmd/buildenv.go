@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"github.com/microsoft/azurelinux/toolkit/tools/internal/rpm"
 )
 
 type BuildEnv struct {
@@ -246,8 +244,19 @@ func (env *BuildEnv) GetLkgDailyRepoId() (string, error) {
 	return id, nil
 }
 
+func getRpmArch(goarch string) (string, error) {
+	switch goarch {
+	case "amd64":
+		return "x86_64", nil
+	case "arm64":
+		return "aarch64", nil
+	default:
+		return "", fmt.Errorf("unsupported architecture: %s", goarch)
+	}
+}
+
 func (env *BuildEnv) GetDailyRepoBaseUri(repoId string) (string, error) {
-	arch, err := rpm.GetRpmArch(runtime.GOARCH)
+	arch, err := getRpmArch(runtime.GOARCH)
 	if err != nil {
 		return "", err
 	}
