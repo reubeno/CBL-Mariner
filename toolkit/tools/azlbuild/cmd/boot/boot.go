@@ -24,6 +24,7 @@ type bootOptions struct {
 	dryRun                  bool
 	useDiskRW               bool
 	imageConfig             string
+	imagePath               string
 	secureBoot              bool
 	testUserName            string
 	testUserPassword        string
@@ -36,6 +37,11 @@ var bootCmd = &cobra.Command{
 	Use:   "boot",
 	Short: "Boot Azure Linux images",
 	RunE: func(c *cobra.Command, args []string) error {
+		// Validate options.
+		if options.imagePath != "" && options.imageConfig != "" {
+			return fmt.Errorf("only one of --image-path and --config may be specified")
+		}
+
 		// Set up default for work dir
 		if options.workDir == "" {
 			options.workDir = path.Join(cmd.CmdEnv.RepoRootDir, "artifacts")
@@ -57,7 +63,9 @@ func init() {
 	bootCmd.Flags().BoolVar(&options.dryRun, "dry-run", false, "Prepare build environment but do not build")
 
 	bootCmd.Flags().StringVarP(&options.imageConfig, "config", "c", "", "Path to the image config file")
-	bootCmd.MarkFlagRequired("config")
+
+	bootCmd.Flags().StringVarP(&options.imagePath, "image-path", "i", "", "Explicit path to the image file")
+	bootCmd.MarkFlagFilename("image-path")
 
 	bootCmd.Flags().StringVar(&options.testUserName, "test-user", "test", "Name for the test account (defaults to test)")
 	bootCmd.Flags().StringVar(&options.testUserPassword, "test-password", "", "Password for the test account")
@@ -74,32 +82,59 @@ func init() {
 }
 
 func bootImage(env *cmd.BuildEnv) error {
-	configFilePath, err := env.ResolveImageConfig(options.imageConfig)
+	var imagePath string
+	var imageFormat string
+	if options.imagePath != "" {
+		imagePath = options.imagePath
+		imageFormat = strings.TrimPrefix(filepath.Ext(imagePath), ".")
+	} else {
+		var err error
+		imagePath, imageFormat, err = getImagePathForConfig(env, options.imageConfig)
+		if err != nil {
+			return err
+		}
+	}
+
+	return bootImageUsingDiskFile(imagePath, imageFormat, options.secureBoot, options.useDiskRW, options.dryRun, options.workDir)
+}
+
+func getImagePathForConfig(env *cmd.BuildEnv, imageConfig string) (imagePath, imageFormat string, err error) {
+	var configFilePath string
+	configFilePath, err = env.ResolveImageConfig(imageConfig)
 	if err != nil {
-		return err
+		return
 	}
 
 	configName := strings.TrimSuffix(filepath.Base(configFilePath), ".json")
 
-	config, err := utils.ParseImageConfig(configFilePath)
+	var config *utils.ImageConfig
+	config, err = utils.ParseImageConfig(configFilePath)
 	if err != nil {
-		return err
+		return
 	}
 
 	if len(config.SystemConfigs) != 1 {
-		return fmt.Errorf("expected exactly one system configuration in the image configuration")
+		err = fmt.Errorf("expected exactly one system configuration in the image configuration")
+		return
 	}
 
 	systemConfig := &config.SystemConfigs[0]
 
+	if systemConfig.BootType != "efi" {
+		err = fmt.Errorf("only UEFI boot is supported")
+		return
+	}
+
 	if len(config.Disks) != 1 {
-		return fmt.Errorf("expected exactly one disk in the image configuration")
+		err = fmt.Errorf("expected exactly one disk in the image configuration")
+		return
 	}
 
 	disk := &config.Disks[0]
 
 	if len(disk.Artifacts) != 1 {
-		return fmt.Errorf("expected exactly one artifact in the disk configuration")
+		err = fmt.Errorf("expected exactly one artifact in the disk configuration")
+		return
 	}
 
 	artifact := &disk.Artifacts[0]
@@ -107,29 +142,22 @@ func bootImage(env *cmd.BuildEnv) error {
 	pattern := path.Join(env.ImageOutputDir, configName, artifact.Name+"*."+artifact.Type)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil
+		return
 	}
 
 	sort.Strings(matches)
 
 	if len(matches) == 0 {
-		return fmt.Errorf("no matching image files found")
+		err = fmt.Errorf("no matching image files found")
+		return
 	}
 
-	imagePath := matches[len(matches)-1]
-
-	return bootImageUsingDiskFile(imagePath, artifact.Type, artifact.Compression, systemConfig.BootType, options.secureBoot, options.useDiskRW, options.dryRun, options.workDir)
+	imagePath = matches[len(matches)-1]
+	imageFormat = artifact.Type
+	return
 }
 
-func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType string, secureBoot, rwDisk, dryRun bool, workDir string) error {
-	if bootType != "efi" {
-		return fmt.Errorf("only EFI boot is supported")
-	}
-
-	if compressionType != "" {
-		return fmt.Errorf("compressed images are not supported")
-	}
-
+func bootImageUsingDiskFile(imagePath, imageFormat string, secureBoot, rwDisk, dryRun bool, workDir string) error {
 	fwPath, nvramTemplatePath, err := findVmFirmware(secureBoot)
 	if err != nil {
 		return nil
@@ -159,7 +187,7 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 	var selectedDiskPath string
 	var selectedDiskType string
 	if !rwDisk {
-		selectedDiskType = artifactType
+		selectedDiskType = imageFormat
 		selectedDiskPath = path.Join(tempDir, "ephemeral.img")
 
 		err = copyFile(imagePath, selectedDiskPath)
@@ -168,7 +196,7 @@ func bootImageUsingDiskFile(imagePath, artifactType, compressionType, bootType s
 		}
 	} else {
 		selectedDiskPath = imagePath
-		selectedDiskType = artifactType
+		selectedDiskType = imageFormat
 	}
 
 	var secureBootOnOff string

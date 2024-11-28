@@ -25,7 +25,7 @@ var packageOptions packageBuildOptions
 
 var packageCmd = &cobra.Command{
 	Use:   "package",
-	Short: "Build packages for Azure Linux",
+	Short: "Build specific packages for Azure Linux",
 	RunE: func(cc *cobra.Command, args []string) error {
 		return buildPackages(cmd.CmdEnv, args)
 	},

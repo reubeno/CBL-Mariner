@@ -15,6 +15,7 @@ import (
 var useDailyRepo bool
 var useExtendedRepo bool
 var dailyRepoId string
+var releaseVersion string
 
 var repoqueryCmd = &cobra.Command{
 	Use:   "repo",
@@ -58,6 +59,7 @@ func repoquery(env *cmd.BuildEnv, extraArgs []string) error {
 	dnfArgs := []string{
 		"--quiet",
 		"--disablerepo=*",
+		fmt.Sprintf("--releasever=%s", releaseVersion),
 	}
 
 	for i, uri := range baseUris {
@@ -79,4 +81,6 @@ func init() {
 
 	repoqueryCmd.Flags().BoolVar(&useDailyRepo, "daily", false, "Use daily repo")
 	repoqueryCmd.Flags().StringVar(&dailyRepoId, "daily-id", "lkg", "ID of daily repo to use")
+	repoqueryCmd.Flags().BoolVar(&useExtendedRepo, "extended", false, "Enable extended repo as well")
+	repoqueryCmd.Flags().StringVarP(&releaseVersion, "release", "r", "3.0", "Release version to query")
 }
