@@ -21,18 +21,18 @@ func (guidelineChecker) Description() string {
 	return "Check spec guidelines"
 }
 
-func (c guidelineChecker) CheckSpecs(env *cmd.BuildEnv, specPaths []string) []CheckResult {
+func (c guidelineChecker) CheckSpecs(env *cmd.BuildEnv, checkerCtx *CheckerContext, specPaths []string) []CheckResult {
 	var results []CheckResult
 
 	for _, specPath := range specPaths {
-		result := c.CheckSpec(env, specPath)
+		result := c.CheckSpec(env, checkerCtx, specPath)
 		results = append(results, result)
 	}
 
 	return results
 }
 
-func (c guidelineChecker) CheckSpec(env *cmd.BuildEnv, specPath string) CheckResult {
+func (c guidelineChecker) CheckSpec(env *cmd.BuildEnv, checkerCtx *CheckerContext, specPath string) CheckResult {
 	absSpecPath, err := filepath.Abs(specPath)
 	if err != nil {
 		return CheckResult{
@@ -52,7 +52,7 @@ func (c guidelineChecker) CheckSpec(env *cmd.BuildEnv, specPath string) CheckRes
 	scriptCmd := exec.Command("python3", scriptArgs...)
 	scriptCmd.Dir = env.RepoRootDir
 
-	return RunExternalCheckerCmd(scriptCmd, specPath)
+	return RunExternalCheckerCmd(checkerCtx, scriptCmd, specPath)
 }
 
 func init() {

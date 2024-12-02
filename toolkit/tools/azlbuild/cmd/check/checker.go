@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd"
@@ -31,6 +32,32 @@ type CheckResult struct {
 	Error    error
 }
 
+type CheckerContext struct {
+	stdoutLogPath string
+	stderrLogPath string
+}
+
+func NewCheckerContext(env *cmd.BuildEnv, checker *SpecChecker) (*CheckerContext, error) {
+	checkerName := (*checker).Name()
+
+	timeStamp := time.Now().Format("20060102-150405")
+	logDirPath := path.Join(env.ChecksLogsDir, "checks", timeStamp)
+
+	err := os.MkdirAll(logDirPath, 0755)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set up an output files for logs.
+	stdoutLogPath := path.Join(logDirPath, fmt.Sprintf("%s.stdout.log", checkerName))
+	stderrLogPath := path.Join(logDirPath, fmt.Sprintf("%s.stderr.log", checkerName))
+
+	return &CheckerContext{
+		stdoutLogPath: stdoutLogPath,
+		stderrLogPath: stderrLogPath,
+	}, nil
+}
+
 type SpecChecker interface {
 	Name() string
 	Description() string
@@ -39,19 +66,19 @@ type SpecChecker interface {
 type SingleSpecChecker interface {
 	Name() string
 	Description() string
-	CheckSpec(env *cmd.BuildEnv, specPath string) CheckResult
+	CheckSpec(env *cmd.BuildEnv, checkerCtx *CheckerContext, specPath string) CheckResult
 }
 
 type BulkSpecChecker interface {
 	Name() string
 	Description() string
-	CheckSpecs(env *cmd.BuildEnv, specPaths []string) []CheckResult
+	CheckSpecs(env *cmd.BuildEnv, checkerCtx *CheckerContext, specPaths []string) []CheckResult
 }
 
 type UnscopedSpecChecker interface {
 	Name() string
 	Description() string
-	CheckAllSpecs(env *cmd.BuildEnv) []CheckResult
+	CheckAllSpecs(env *cmd.BuildEnv, checkerCtx *CheckerContext) []CheckResult
 }
 
 var registeredSpecCheckers []SpecChecker
@@ -122,12 +149,17 @@ func runChecker(checker SpecChecker, options *specCheckerOptions) error {
 
 	slog.Debug("Running checker", "checker", checker.Name(), "specs", specPaths)
 
-	return runCheckerOnSpecs(checker, &specPaths)
+	return runCheckerOnSpecsAndReport(checker, &specPaths)
 }
 
 func runCheckerOnAllSpecs(checker SpecChecker) error {
 	if unscopedSpecChecker, valid := checker.(UnscopedSpecChecker); valid {
-		results := unscopedSpecChecker.CheckAllSpecs(cmd.CmdEnv)
+		checkerCtx, err := NewCheckerContext(cmd.CmdEnv, &checker)
+		if err != nil {
+			return err
+		}
+
+		results := unscopedSpecChecker.CheckAllSpecs(cmd.CmdEnv, checkerCtx)
 		return reportCheckerResults(checker, results)
 	} else {
 		allSpecPaths, err := findAllSpecPaths(cmd.CmdEnv)
@@ -135,7 +167,7 @@ func runCheckerOnAllSpecs(checker SpecChecker) error {
 			return err
 		}
 
-		return runCheckerOnSpecs(checker, &allSpecPaths)
+		return runCheckerOnSpecsAndReport(checker, &allSpecPaths)
 	}
 }
 
@@ -166,22 +198,37 @@ func findAllSpecPaths(env *cmd.BuildEnv) ([]string, error) {
 	return allMatches, nil
 }
 
-func runCheckerOnSpecs(checker SpecChecker, specPaths *[]string) error {
-	var results []CheckResult
-	if bulkSpecChecker, valid := checker.(BulkSpecChecker); valid {
-		results = bulkSpecChecker.CheckSpecs(cmd.CmdEnv, *specPaths)
-	} else if singleSpecChecker, valid := checker.(SingleSpecChecker); valid {
-		for _, specPath := range *specPaths {
-			results = append(results, singleSpecChecker.CheckSpec(cmd.CmdEnv, specPath))
-		}
-	} else if unscopedSpecChecker, valid := checker.(UnscopedSpecChecker); valid {
-		slog.Debug("Running unscoped checker", "checker", checker.Name())
-		results = unscopedSpecChecker.CheckAllSpecs(cmd.CmdEnv)
-	} else {
-		return fmt.Errorf("unsupported checker type: %s", checker.Name())
+func runCheckerOnSpecsAndReport(checker SpecChecker, specPaths *[]string) error {
+	results, err := runCheckerOnSpecs(checker, specPaths)
+	if err != nil {
+		return err
 	}
 
 	return reportCheckerResults(checker, results)
+}
+
+func runCheckerOnSpecs(checker SpecChecker, specPaths *[]string) ([]CheckResult, error) {
+	var results []CheckResult
+
+	checkerCtx, err := NewCheckerContext(cmd.CmdEnv, &checker)
+	if err != nil {
+		return results, err
+	}
+
+	if bulkSpecChecker, valid := checker.(BulkSpecChecker); valid {
+		results = bulkSpecChecker.CheckSpecs(cmd.CmdEnv, checkerCtx, *specPaths)
+	} else if singleSpecChecker, valid := checker.(SingleSpecChecker); valid {
+		for _, specPath := range *specPaths {
+			results = append(results, singleSpecChecker.CheckSpec(cmd.CmdEnv, checkerCtx, specPath))
+		}
+	} else if unscopedSpecChecker, valid := checker.(UnscopedSpecChecker); valid {
+		slog.Debug("Running unscoped checker", "checker", checker.Name())
+		results = unscopedSpecChecker.CheckAllSpecs(cmd.CmdEnv, checkerCtx)
+	} else {
+		return results, fmt.Errorf("unsupported checker type: %s", checker.Name())
+	}
+
+	return results, nil
 }
 
 func reportCheckerResults(checker SpecChecker, results []CheckResult) error {
@@ -225,12 +272,34 @@ func reportCheckerResults(checker SpecChecker, results []CheckResult) error {
 	return err
 }
 
-func RunExternalCheckerCmd(cmd *exec.Cmd, specPath string) CheckResult {
-	// TODO: Write output to file.
-	// cmd.Stdout = os.Stdout
-	// cmd.Stderr = os.Stderr
+func RunExternalCheckerCmd(checkerCtx *CheckerContext, cmd *exec.Cmd, specPath string) CheckResult {
+	stdoutFile, err := os.Create(checkerCtx.stdoutLogPath)
+	if err != nil {
+		return CheckResult{
+			Status:   CheckInternalError,
+			Error:    err,
+			SpecPath: specPath,
+		}
+	}
 
-	err := cmd.Run()
+	defer stdoutFile.Close()
+
+	stderrFile, err := os.Create(checkerCtx.stderrLogPath)
+	if err != nil {
+		return CheckResult{
+			Status:   CheckInternalError,
+			Error:    err,
+			SpecPath: specPath,
+		}
+	}
+
+	defer stderrFile.Close()
+
+	// TODO: Write output to file.
+	cmd.Stdout = stdoutFile
+	cmd.Stderr = stderrFile
+
+	err = cmd.Run()
 
 	// Check if the error was because of a non-zero exit.
 	var status CheckStatus

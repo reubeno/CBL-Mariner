@@ -12,6 +12,7 @@ import (
 	_ "github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd/build"
 	_ "github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd/check"
 	_ "github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd/download"
+	_ "github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd/edit"
 	_ "github.com/microsoft/azurelinux/toolkit/tools/azlbuild/cmd/query"
 )
 

@@ -20,7 +20,7 @@ func (entangledSpecsChecker) Description() string {
 	return "Check entangled specs"
 }
 
-func (entangledSpecsChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
+func (entangledSpecsChecker) CheckAllSpecs(env *cmd.BuildEnv, checkerCtx *CheckerContext) []CheckResult {
 	scriptArgs := []string{
 		path.Join(env.ToolkitDir, "scripts", "check_entangled_specs.py"),
 		env.RepoRootDir,
@@ -29,7 +29,7 @@ func (entangledSpecsChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
 	// TODO: Check Python prerequisites.
 	scriptCmd := exec.Command("python3", scriptArgs...)
 
-	result := RunExternalCheckerCmd(scriptCmd, "")
+	result := RunExternalCheckerCmd(checkerCtx, scriptCmd, "")
 	return []CheckResult{result}
 }
 

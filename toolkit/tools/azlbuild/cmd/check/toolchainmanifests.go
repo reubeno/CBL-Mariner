@@ -21,7 +21,7 @@ func (toolchainManifestChecker) Description() string {
 	return "Check toolchain manifests"
 }
 
-func (toolchainManifestChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
+func (toolchainManifestChecker) CheckAllSpecs(env *cmd.BuildEnv, checkerCtx *CheckerContext) []CheckResult {
 	scriptPath := path.Join(env.ToolkitDir, "scripts", "toolchain", "check_manifests.sh")
 
 	results := []CheckResult{}
@@ -29,7 +29,7 @@ func (toolchainManifestChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
 		scriptCmd := exec.Command(scriptPath, "-a", arch)
 		scriptCmd.Dir = env.ToolkitDir
 
-		result := RunExternalCheckerCmd(scriptCmd, fmt.Sprintf("(%s)", arch))
+		result := RunExternalCheckerCmd(checkerCtx, scriptCmd, fmt.Sprintf("(%s)", arch))
 		results = append(results, result)
 	}
 

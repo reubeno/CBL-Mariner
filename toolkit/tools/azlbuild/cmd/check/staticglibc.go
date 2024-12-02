@@ -20,7 +20,7 @@ func (staticGlibcChecker) Description() string {
 	return "Check static glibc"
 }
 
-func (c staticGlibcChecker) CheckSpecs(env *cmd.BuildEnv, specPaths []string) []CheckResult {
+func (c staticGlibcChecker) CheckSpecs(env *cmd.BuildEnv, checkerCtx *CheckerContext, specPaths []string) []CheckResult {
 	scriptArgs := []string{
 		path.Join(env.ToolkitDir, "scripts", "check_static_glibc.py"),
 	}
@@ -31,7 +31,7 @@ func (c staticGlibcChecker) CheckSpecs(env *cmd.BuildEnv, specPaths []string) []
 	scriptCmd := exec.Command("python3", scriptArgs...)
 	scriptCmd.Dir = env.RepoRootDir
 
-	result := RunExternalCheckerCmd(scriptCmd, "")
+	result := RunExternalCheckerCmd(checkerCtx, scriptCmd, "")
 
 	var results []CheckResult
 	for _, specPath := range specPaths {

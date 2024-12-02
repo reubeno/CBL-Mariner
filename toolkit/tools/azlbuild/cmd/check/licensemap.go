@@ -20,7 +20,7 @@ func (licenseMapChecker) Description() string {
 	return "Check license map"
 }
 
-func (licenseMapChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
+func (licenseMapChecker) CheckAllSpecs(env *cmd.BuildEnv, checkerCtx *CheckerContext) []CheckResult {
 	scriptArgs := []string{
 		path.Join(env.ToolkitDir, "scripts", "license_map.py"),
 		path.Join(env.LicensesAndNoticesDir, "SPECS/data/licenses.json"),
@@ -33,7 +33,7 @@ func (licenseMapChecker) CheckAllSpecs(env *cmd.BuildEnv) []CheckResult {
 	// TODO: Check Python prerequisites.
 	scriptCmd := exec.Command("python3", scriptArgs...)
 
-	result := RunExternalCheckerCmd(scriptCmd, "")
+	result := RunExternalCheckerCmd(checkerCtx, scriptCmd, "")
 	return []CheckResult{result}
 }
 

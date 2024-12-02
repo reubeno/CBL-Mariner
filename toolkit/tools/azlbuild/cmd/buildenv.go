@@ -20,6 +20,7 @@ type BuildEnv struct {
 	ExtendedSpecsDir      string
 	SignedSpecsDir        string
 	ImageOutputDir        string
+	ChecksLogsDir         string
 
 	verbose bool
 	quiet   bool
@@ -34,6 +35,7 @@ func NewBuildEnv(toolkitDir, repoRoot string, verbose bool, quiet bool) *BuildEn
 		ExtendedSpecsDir:      path.Join(repoRoot, "SPECS-EXTENDED"),
 		SignedSpecsDir:        path.Join(repoRoot, "SPECS-SIGNED"),
 		ImageOutputDir:        path.Join(repoRoot, "out", "images"),
+		ChecksLogsDir:         path.Join(repoRoot, "artifacts", "logs"),
 
 		verbose: verbose,
 		quiet:   quiet,
