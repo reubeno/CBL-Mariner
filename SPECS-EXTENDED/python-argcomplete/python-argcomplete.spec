@@ -7,7 +7,7 @@ Distribution:   Azure Linux
 Name:          python-%{modname}
 Summary:       Bash tab completion for argparse
 Version:       1.10.0
-Release:       7%{?dist}
+Release:       8%{?dist}
 License:       ASL 2.0
 URL:           https://github.com/kislyuk/argcomplete
 Source0:       %pypi_source argcomplete
